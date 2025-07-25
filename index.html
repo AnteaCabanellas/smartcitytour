@@ -1,10 +1,88 @@
+
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <title>Smart City Tour</title>
+  <meta charset="UTF-8">
+  <title>Chatbot básico</title>
+  <style>
+    #chatbot {
+      width: 100%;
+      max-width: 500px;
+      border: 1px solid #ccc;
+      padding: 1rem;
+      font-family: sans-serif;
+      background: #f9f9f9;
+      border-radius: 10px;
+    }
+    #chatlog {
+      height: 300px;
+      overflow-y: auto;
+      border: 1px solid #ddd;
+      padding: 10px;
+      background: #fff;
+      margin-bottom: 10px;
+    }
+    .user, .bot {
+      margin-bottom: 10px;
+    }
+    .user {
+      text-align: right;
+      color: #0077cc;
+    }
+    .bot {
+      text-align: left;
+      color: #444;
+    }
+    #chat-form input {
+      width: 80%;
+      padding: 8px;
+    }
+    #chat-form button {
+      padding: 8px 12px;
+    }
+  </style>
 </head>
 <body>
-    <h1>¡Bienvenido a Smart City Tour!</h1>
+
+<div id="chatbot">
+  <div id="chatlog"></div>
+  <form id="chat-form">
+    <input type="text" id="user-input" placeholder="Escribe tu pregunta..." autocomplete="off" required />
+    <button type="submit">Enviar</button>
+  </form>
+</div>
+
+<script>
+  const respuestas = {
+    "¿qué me recomiendas?": "Te recomiendo probar nuestro producto estrella: el Pack Premium.",
+    "hola": "¡Hola! ¿En qué puedo ayudarte?",
+    "¿tienes recomendaciones?": "Claro, dime qué estás buscando: ¿productos, servicios o ideas?",
+    "gracias": "¡De nada! 😊",
+  };
+
+  const chatlog = document.getElementById("chatlog");
+  const form = document.getElementById("chat-form");
+  const input = document.getElementById("user-input");
+
+  function añadirMensaje(mensaje, clase) {
+    const div = document.createElement("div");
+    div.className = clase;
+    div.textContent = mensaje;
+    chatlog.appendChild(div);
+    chatlog.scrollTop = chatlog.scrollHeight;
+  }
+
+  form.addEventListener("submit", function(e) {
+    e.preventDefault();
+    const pregunta = input.value.trim().toLowerCase();
+    añadirMensaje(pregunta, "user");
+    const respuesta = respuestas[pregunta] || "Lo siento, aún no tengo respuesta para eso.";
+    setTimeout(() => {
+      añadirMensaje(respuesta, "bot");
+    }, 500);
+    input.value = "";
+  });
+</script>
+
 </body>
 </html>
