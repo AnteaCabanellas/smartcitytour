@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Smart City Tour con OpenAI</title>
+  <style>
+    #chatbot { max-width: 600px; margin: auto; font-family: sans-serif; background: #f4f4f4; padding: 1rem; border-radius: 10px; }
+    #chatlog { height: 500px; overflow-y: auto; background: #fff; border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; }
+    .user, .bot { margin: 10px 0; }
+    .user { text-align: right; color: #007acc; }
+    .bot { text-align: left; color: #222; }
+    input, button { padding: 10px; margin-top: 5px; }
+    #apikey-container { margin-bottom: 10px; }
+  </style>
+</head>
+<body>
+
+<div id="chatbot">
+  <div id="apikey-container">
+    <label>🔑 Tu API Key de OpenAI: </label>
+    <input type="password" id="apikey" placeholder="" size="40" />
+  </div>
+  <div id="chatlog"></div>
+  <form id="chat-form">
+    <input type="text" id="user-input" placeholder="Escribe tu mensaje..." size="40" required />
+    <button type="submit">Enviar</button>
+  </form>
+</div>
+
+<script>
+  const chatlog = document.getElementById("chatlog");
+  const form = document.getElementById("chat-form");
+  const input = document.getElementById("user-input");
+  const apikeyInput = document.getElementById("apikey");
+
+  function añadirMensaje(texto, clase) {
+    const div = document.createElement("div");
+    div.className = clase;
+    div.textContent = texto;
+    chatlog.appendChild(div);
+    chatlog.scrollTop = chatlog.scrollHeight;
+  }
+
+  async function preguntarAOpenAI(pregunta, apikey) {
+    const respuesta = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apikey}`
+      },
+      body: JSON.stringify({
+        model: "gpt-3.5-turbo",
+        messages: [{ role: "user", content: pregunta }],
+        temperature: 0.7
+      })
+    });
+
+    if (!respuesta.ok) {
+      return "❌ Error al contactar con OpenAI.";
+    }
+
+    const datos = await respuesta.json();
+    return datos.choices[0].message.content.trim();
+  }
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const pregunta = input.value.trim();
+    const apikey = apikeyInput.value.trim();
+
+    if (!apikey) {
+      alert("Por favor, introduce tu API Key de OpenAI.");
+      return;
+    }
+
+    añadirMensaje(pregunta, "user");
+    input.value = "";
+    añadirMensaje("Pensando...", "bot");
+
+    const respuesta = await preguntarAOpenAI(pregunta, apikey);
+    const ultBotMsg = document.querySelector(".bot:last-child");
+    ultBotMsg.textContent = respuesta;
+  });
+</script>
+
+</body>
+</html>
