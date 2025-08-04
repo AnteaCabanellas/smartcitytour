@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Smart City Tour con OpenAI</title>
+  <style>
+    #chatbot { max-width: 600px; margin: auto; font-family: sans-serif; background: #f4f4f4; padding: 1rem; border-radius: 10px; }
+    #chatlog { height: 500px; overflow-y: auto; background: #fff; border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; white-space: pre-wrap; }
+    .user, .bot { margin: 10px 0; padding: 8px 12px; border-radius: 12px; max-width: 80%; word-wrap: break-word; }
+    .user { text-align: right; color: #fff; background: #007acc; margin-left: auto; }
+    .bot { text-align: left; color: #222; background: #eee; margin-right: auto; }
+    input, button { padding: 10px; margin-top: 5px; }
+  </style>
+</head>
+<body>
+
+<div id="chatbot">
+  <div id="chatlog"></div>
+  <form id="chat-form">
+    <input type="text" id="user-input" placeholder="Escribe tu mensaje..." size="40" required autocomplete="off" />
+    <button type="submit">Enviar</button>
+  </form>
+</div>
+
+<script>
+  const chatlog = document.getElementById("chatlog");
+  const form = document.getElementById("chat-form");
+  const input = document.getElementById("user-input");
+
+  let chatHistory = [];
+
+  function añadirMensaje(texto, clase) {
+    const div = document.createElement("div");
+    div.className = clase;
+    div.textContent = texto;
+    chatlog.appendChild(div);
+    chatlog.scrollTop = chatlog.scrollHeight;
+  }
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const pregunta = input.value.trim();
+    if (!pregunta) return;
+
+    // Añadimos la pregunta al historial
+    chatHistory.push({ role: "user", content: pregunta });
+    añadirMensaje(pregunta, "user");
+    input.value = "";
+    añadirMensaje("Pensando...", "bot");
+
+    try {
+      const res = await fetch("/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: chatHistory })
+      });
+      const data = await res.json();
+
+      const ultBotMsg = document.querySelector(".bot:last-child");
+      if (data.response) {
+        ultBotMsg.textContent = data.response;
+        // Añadimos la respuesta al historial
+        chatHistory.push({ role: "assistant", content: data.response });
+      } else {
+        ultBotMsg.textContent = "❌ Error en la respuesta";
+      }
+    } catch (err) {
+      const ultBotMsg = document.querySelector(".bot:last-child");
+      ultBotMsg.textContent = "❌ Error al contactar con el servidor.";
+    }
+  });
+</script>
+
+</body>
+</html>
