@@ -37,16 +37,24 @@
     chatlog.scrollTop = chatlog.scrollHeight;
   }
 
+  // Mensaje inicial automático
+  window.addEventListener("load", () => {
+    const saludoInicial = "¡Hola! ¿En qué puedo ayudarte hoy?";
+    añadirMensaje(saludoInicial, "bot");
+    chatHistory.push({ role: "assistant", content: saludoInicial });
+  });
+
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const pregunta = input.value.trim();
     if (!pregunta) return;
 
-    // Añadimos la pregunta al historial
     chatHistory.push({ role: "user", content: pregunta });
     añadirMensaje(pregunta, "user");
     input.value = "";
-    añadirMensaje("Pensando...", "bot");
+
+    const thinkingMsg = "Pensando...";
+    añadirMensaje(thinkingMsg, "bot");
 
     try {
       const res = await fetch("/chat", {
@@ -58,9 +66,11 @@
 
       const ultBotMsg = document.querySelector(".bot:last-child");
       if (data.response) {
-        ultBotMsg.textContent = data.response;
-        // Añadimos la respuesta al historial
-        chatHistory.push({ role: "assistant", content: data.response });
+        // Simula un pequeño delay para mejor UX
+        setTimeout(() => {
+          ultBotMsg.textContent = data.response;
+          chatHistory.push({ role: "assistant", content: data.response });
+        }, 800);
       } else {
         ultBotMsg.textContent = "❌ Error en la respuesta";
       }
