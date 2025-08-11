@@ -2,319 +2,120 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <title>Smart City Tour con OpenAI</title>
+  <title>Mi sitio — Smart City Tour</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    :root {
-      --bg: #0f172a;          /* slate-900 */
-      --panel: #111827;       /* gray-900 */
-      --bubble-user: #3b82f6; /* blue-500 */
-      --bubble-bot: #0b1222;  /* deep slate */
-      --text: #e5e7eb;        /* gray-200 */
-      --muted: #94a3b8;       /* slate-400 */
-      --accent: #22c55e;      /* green-500 */
-      --border: #1f2937;      /* gray-800 */
-    }
-    @media (prefers-color-scheme: light) {
-      :root {
-        --bg: #f1f5f9;
-        --panel: #ffffff;
-        --bubble-user: #2563eb;
-        --bubble-bot: #f3f4f6;
-        --text: #0f172a;
-        --muted: #475569;
-        --accent: #16a34a;
-        --border: #e5e7eb;
-      }
+    /* ---------------- Launcher & Iframe (widget) ---------------- */
+    :root{
+      /* Colores en sintonía con el chat */
+      --sct-blue:  #2563eb;   /* bubble-user principal */
+      --sct-blue2: #3b82f6;   /* gradiente */
+      --sct-green: #22c55e;   /* acento */
     }
 
-    * { box-sizing: border-box; }
-    html, body { height: 100%; }
-    body {
-      margin: 0; background: radial-gradient(1200px 800px at 20% -10%, rgba(34,197,94,.15), transparent 60%),
-                 radial-gradient(900px 600px at 120% 0%, rgba(59,130,246,.12), transparent 50%), var(--bg);
-      color: var(--text); font-family: system-ui, -apple-system, Segoe UI, Roboto, Inter, sans-serif;
-      line-height: 1.35;
+    /* Botón flotante (burbuja) */
+    #sct-launcher{
+      position:fixed; right:24px; bottom:24px; z-index:99998;
+      width:64px; height:64px; border-radius:50%; border:none; cursor:pointer;
+      color:#fff;
+      background: radial-gradient(120% 120% at 70% 20%, var(--sct-blue2) 0%, var(--sct-blue) 60%);
+      box-shadow: 0 18px 38px rgba(0,0,0,.28), inset 0 2px 8px rgba(255,255,255,.12);
+      display:grid; place-items:center;
+      transition: transform .15s ease, filter .15s ease, box-shadow .2s ease;
+    }
+    #sct-launcher:hover{ filter:brightness(1.08); }
+    #sct-launcher:active{ transform: translateY(1px) scale(.98); }
+    #sct-launcher svg{ display:block; }
+
+    /* halo sutil */
+    #sct-launcher::after{
+      content:""; position:absolute; inset:-6px; border-radius:inherit;
+      background: radial-gradient(60% 60% at 50% 50%, rgba(34,197,94,.18), transparent 70%);
+      opacity:.7; filter: blur(6px); pointer-events:none;
     }
 
-    .shell {
-      max-width: 920px; margin: 0 auto; padding: 24px;
-      display: grid; grid-template-rows: auto 1fr auto; gap: 16px; height: 100dvh;
+    /* Rebote al abrir */
+    @keyframes sct-bounce-in{
+      0%   { transform: translateY(12px) scale(.85); box-shadow: 0 12px 28px rgba(0,0,0,.22); }
+      55%  { transform: translateY(-6px) scale(1.04); }
+      80%  { transform: translateY(2px)  scale(.99); }
+      100% { transform: translateY(0)    scale(1); }
+    }
+    #sct-launcher.rebote{ animation: sct-bounce-in .5s cubic-bezier(.2,.8,.2,1); }
+
+    /* Iframe del chat (tamaño grande) */
+    #sct-frame{
+      position:fixed; right:24px; bottom:104px; z-index:99999;
+      width: 860px;    /* ⇦ ajusta a tu gusto (720/900/etc.) */
+      height: 82vh;    /* ⇦ alto visible */
+      border:0; border-radius:20px; box-shadow:0 14px 44px rgba(0,0,0,.35);
+      display:none; background:transparent;
     }
 
-    header {
-      display: flex; align-items: center; justify-content: space-between; gap: 12px;
-      padding: 10px 14px; border: 1px solid var(--border); background: var(--panel); border-radius: 14px;
+    /* Responsive */
+    @media (max-width: 920px){
+      #sct-frame{ left:4vw; right:4vw; width:auto; height:82vh; bottom:96px; }
     }
-    .brand { display: flex; align-items: center; gap: 12px; }
-    .badge { font-size: 12px; color: var(--muted); }
-    .today { font-size: 12px; color: var(--muted); }
+    @media (prefers-reduced-motion: reduce){
+      #sct-launcher{ transition:none }
+      #sct-launcher.rebote{ animation:none }
+    }
 
-    .toolbar {
-      display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
-    }
-    .chip {
-      border: 1px solid var(--border); background: transparent; color: var(--text);
-      padding: 6px 10px; border-radius: 999px; cursor: pointer; font-size: 13px;
-    }
-    .chip:hover { border-color: var(--muted); }
-    .toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
-
-    #chatbox {
-      border: 1px solid var(--border); background: var(--panel); border-radius: 16px;
-      padding: 12px; display: grid; grid-template-rows: 1fr auto; min-height: 0;
-    }
-    #chatlog {
-      overflow-y: auto; padding: 8px; min-height: 280px; max-height: 64vh;
-      scroll-behavior: smooth;
-    }
-    .row { display: flex; margin: 10px 0; gap: 10px; }
-    .row.user { justify-content: flex-end; }
-    .bubble {
-      max-width: min(78%, 680px); padding: 10px 12px; border-radius: 14px; border: 1px solid var(--border);
-      white-space: pre-wrap; word-wrap: break-word; overflow-wrap: anywhere;
-    }
-    .user .bubble { background: var(--bubble-user); color: #fff; border-color: transparent; }
-    .bot .bubble { background: var(--bubble-bot); }
-    .meta { font-size: 11px; color: var(--muted); margin-top: 4px; }
-
-    /* Markdown básico */
-    .bubble h1,.bubble h2,.bubble h3{ margin: .4em 0 .2em; }
-    .bubble p{ margin: .4em 0; }
-    .bubble ul{ margin: .4em 0 .4em 1.1em; }
-    .bubble li{ margin: .25em 0; }
-    .bubble code{ padding: 2px 4px; border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-                  font-size: .95em; background: rgba(148,163,184,.2); }
-    .bubble pre{ padding: 10px; border-radius: 8px; overflow:auto; background: rgba(148,163,184,.15); border: 1px dashed var(--border); }
-    .bubble a{ color: #93c5fd; text-decoration: underline; }
-
-    form#composer {
-      display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 8px;
-      border-top: 1px dashed var(--border);
-    }
-    textarea {
-      resize: none; min-height: 44px; max-height: 160px; padding: 10px 12px; border-radius: 12px;
-      background: transparent; color: var(--text); border: 1px solid var(--border);
-      outline: none;
-    }
-    textarea:focus { border-color: var(--muted); }
-    button.send {
-      padding: 10px 16px; border-radius: 12px; border: none; cursor: pointer;
-      background: linear-gradient(135deg, var(--accent), #10b981); color: #052e16; font-weight: 700;
-    }
-    button.send[disabled]{ opacity: .6; cursor: not-allowed; }
-
-    .actions { display: flex; gap: 8px; }
-    .ghost {
-      padding: 8px 10px; border-radius: 10px; border: 1px solid var(--border); background: transparent; color: var(--text);
-      cursor: pointer; font-size: 13px;
-    }
-    .ghost:hover{ border-color: var(--muted); }
-    .thinking {
-      display:inline-block; width: 1.2em; text-align: left;
-      animation: dots 1.2s steps(4, end) infinite; font-family: monospace;
-    }
-    @keyframes dots { 0%{content:""} 25%{content:"."} 50%{content:".."} 75%{content:"..."} }
+    /* Demo de contenido de tu página */
+    main{ padding:2rem; font-family: system-ui, -apple-system, Segoe UI, Roboto, Inter, sans-serif; }
   </style>
 </head>
 <body>
-  <div class="shell">
-    <header>
-      <div class="brand">
-        <div>
-          <strong>Smart City Tour</strong><div class="badge">Asistente turístico local</div>
-        </div>
-      </div>
-      <div class="today" id="today"></div>
-    </header>
 
-    <div id="chatbox">
-      <div id="chatlog" aria-live="polite"></div>
+  <main>
+    <h1>Mi sitio</h1>
+    <p>Contenido de ejemplo. El chat está en la esquina inferior derecha. 👇</p>
+  </main>
 
-      <div class="toolbar" style="padding:8px 8px 0;">
-        <button class="chip" data-q="museos interesantes">Museos</button>
-        <button class="chip" data-q="bares con terraza">Bares</button>
-        <button class="chip" data-q="piscinas públicas">Piscinas</button>
-        <button class="chip" data-q="parques naturales">Parques</button>
-        <label class="toggle"><input type="checkbox" id="plan-hoy" /> Plan para hoy</label>
-        <div class="actions" style="margin-left:auto">
-          <button class="ghost" id="clear">Limpiar</button>
-          <button class="ghost" id="export">Exportar</button>
-        </div>
-      </div>
+  <!-- Botón flotante -->
+  <button id="sct-launcher" aria-label="Abrir chat" title="Abrir chat">
+    <!-- Icono de burbuja -->
+    <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true">
+      <path fill="currentColor"
+            d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9.8l-3.9 3a1 1 0 0 1-1.6-.8V17H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/>
+    </svg>
+  </button>
 
-      <form id="composer">
-        <textarea id="user-input" placeholder="Escribe tu mensaje... (Shift+Enter para nueva línea)" required></textarea>
-        <button type="submit" class="send" id="send">Enviar</button>
-      </form>
-    </div>
-  </div>
+  <!-- Iframe del chat mejorado -->
+  <iframe id="sct-frame" src="/widget" title="Smart City Tour" loading="lazy"></iframe>
 
   <script>
-    // ===== Utilidades =====
-    const $ = (q, node=document) => node.querySelector(q);
-    const $$ = (q, node=document) => [...node.querySelectorAll(q)];
-    const chatlog = $("#chatlog");
-    const input = $("#user-input");
-    const sendBtn = $("#send");
-    const planHoy = $("#plan-hoy");
-    const todayBox = $("#today");
+    const btn   = document.getElementById('sct-launcher');
+    const frame = document.getElementById('sct-frame');
+    let open = false;
 
-    // Fecha local bonita (Europe/Madrid; el backend ya opera con esta zona)
-    function setToday() {
-      const d = new Date();
-      const fmt = new Intl.DateTimeFormat("es-ES", { dateStyle: "full", timeStyle: "short" });
-      todayBox.textContent = fmt.format(d);
-    }
-    setToday();
+    const bubbleSVG = `
+      <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true">
+        <path fill="currentColor"
+              d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9.8l-3.9 3a1 1 0 0 1-1.6-.8V17H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/>
+      </svg>`;
 
-    // Persistencia simple
-    let chatHistory = JSON.parse(localStorage.getItem("chatHistory") || "[]");
-    function saveHistory(){ localStorage.setItem("chatHistory", JSON.stringify(chatHistory)); }
+    function toggleChat(){
+      open = !open;
+      frame.style.display = open ? 'block' : 'none';
+      btn.setAttribute('aria-label', open ? 'Cerrar chat' : 'Abrir chat');
+      btn.title = open ? 'Cerrar chat' : 'Abrir chat';
+      btn.innerHTML = open ? '✖' : bubbleSVG;
 
-    // Render inicial si hay historial
-    if (chatHistory.length === 0) {
-      addBot("¡Hola! ¿En qué puedo ayudarte hoy?");
-      chatHistory.push({ role: "assistant", content: "¡Hola! ¿En qué puedo ayudarte hoy?" });
-      saveHistory();
-    } else {
-      chatHistory.forEach(m => addRow(m.role, m.content, false));
-      scrollBottom();
-    }
-
-    // ===== Markdown muy básico =====
-    function mdToHtml(md) {
-      // escapado mínimo
-      md = md.replace(/[<>&]/g, s => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[s]));
-      // code blocks ``` ```
-      md = md.replace(/```([\s\S]*?)```/g, (m, p1) => `<pre><code>${p1}</code></pre>`);
-      // inline code
-      md = md.replace(/`([^`]+)`/g, '<code>$1</code>');
-      // strong / em
-      md = md.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-      md = md.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-      // links
-      md = md.replace(/(https?:\/\/[^\s)]+)(?![^<]*>)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
-      // lists simple
-      md = md.replace(/(?:^|\n)[\-\•]\s+(.*)/g, (m, p1) => `\n<li>${p1}</li>`);
-      md = md.replace(/(<li>[\s\S]*<\/li>)/g, '<ul>$1</ul>');
-      // line breaks
-      md = md.replace(/\n{2,}/g, '\n\n').replace(/\n/g, '<br>');
-      return md;
-    }
-
-    function addRow(role, text, withTime=true) {
-      const row = document.createElement("div");
-      row.className = `row ${role}`;
-      const bubble = document.createElement("div");
-      bubble.className = "bubble";
-      bubble.innerHTML = role === "assistant" ? mdToHtml(text) : text;
-      row.appendChild(bubble);
-
-      if (withTime) {
-        const meta = document.createElement("div");
-        meta.className = "meta";
-        meta.textContent = new Intl.DateTimeFormat("es-ES", { hour: "2-digit", minute: "2-digit" }).format(new Date());
-        bubble.appendChild(document.createElement("br"));
-        bubble.appendChild(meta);
+      if (open){
+        btn.classList.remove('rebote'); // reinicia anim
+        void btn.offsetWidth;           // reflow
+        btn.classList.add('rebote');
+        btn.addEventListener('animationend', () => btn.classList.remove('rebote'), { once:true });
       }
-      chatlog.appendChild(row);
     }
 
-    function addUser(text) { addRow("user", text); }
-    function addBot(text)  { addRow("assistant", text); }
-    function scrollBottom(){ chatlog.scrollTop = chatlog.scrollHeight; }
+    btn.addEventListener('click', toggleChat);
 
-    // chips rápidas
-    $$(".chip").forEach(b => b.addEventListener("click", () => {
-      input.value = b.dataset.q;
-      input.focus();
-    }));
-
-    // limpiar / exportar
-    $("#clear").addEventListener("click", () => {
-      chatHistory = [];
-      localStorage.removeItem("chatHistory");
-      chatlog.innerHTML = "";
-      addBot("Conversación reiniciada. ¿Qué te gustaría buscar?");
-      chatHistory.push({ role: "assistant", content: "Conversación reiniciada. ¿Qué te gustaría buscar?" });
-      saveHistory();
-    });
-
-    $("#export").addEventListener("click", () => {
-      const blob = new Blob([JSON.stringify(chatHistory, null, 2)], {type: "application/json"});
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = `smart-city-tour_${new Date().toISOString().slice(0,10)}.json`;
-      a.click();
-      URL.revokeObjectURL(a.href);
-    });
-
-    // Envío
-    $("#composer").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const raw = input.value.trim();
-      if (!raw) return;
-
-      // si plan-hoy está activo, reforzamos la intención
-      const pregunta = planHoy.checked ? (`plan para hoy: ${raw}`) : raw;
-
-      chatHistory.push({ role: "user", content: pregunta });
-      saveHistory();
-      addUser(raw);
-      input.value = "";
-      input.style.height = "auto";
-
-      // mensaje “pensando…”
-      const thinking = document.createElement("div");
-      thinking.className = "row assistant";
-      thinking.innerHTML = `<div class="bubble">Pensando<span class="thinking">...</span></div>`;
-      chatlog.appendChild(thinking);
-      scrollBottom();
-
-      // bloquear botón durante la petición
-      sendBtn.disabled = true;
-
-      try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 30000); // 30s
-        const res = await fetch("/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: chatHistory }),
-          signal: controller.signal
-        });
-        clearTimeout(timeout);
-
-        const data = await res.json();
-        const lastBubble = thinking.querySelector(".bubble");
-        if (data && data.response) {
-          lastBubble.innerHTML = mdToHtml(data.response);
-          chatHistory.push({ role: "assistant", content: data.response });
-          saveHistory();
-        } else {
-          lastBubble.textContent = "❌ Error en la respuesta";
-        }
-      } catch (err) {
-        const lastBubble = thinking.querySelector(".bubble");
-        lastBubble.textContent = "❌ Error al contactar con el servidor.";
-      } finally {
-        sendBtn.disabled = false;
-        scrollBottom();
-      }
-    });
-
-    // textarea auto-grow
-    input.addEventListener("input", () => {
-      input.style.height = "auto";
-      input.style.height = Math.min(input.scrollHeight, 160) + "px";
-    });
-    // Shift+Enter → salto de línea, Enter → enviar
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        $("#composer").requestSubmit();
-      }
+    // Rebote inicial opcional al cargar:
+    window.addEventListener('load', () => {
+      btn.classList.add('rebote');
+      btn.addEventListener('animationend', () => btn.classList.remove('rebote'), { once:true });
     });
   </script>
 </body>
