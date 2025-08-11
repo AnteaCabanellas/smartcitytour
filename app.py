@@ -527,6 +527,12 @@ def estado_fine_tuning(job_id):
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    
+    # app.py
+@app.route('/widget')
+def widget():
+    return render_template('chat_widget.html')  # el HTML del chat mejorado
+
 
 # ======================
 # Main
