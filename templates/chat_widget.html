@@ -14,109 +14,65 @@
       --muted: #94a3b8;       /* slate-400 */
       --accent: #22c55e;      /* green-500 */
       --border: #1f2937;      /* gray-800 */
-      --ui-font-size: 12.5px;      /* tamaño base más pequeño */
-      --bubble-font-size: 12.5px;  /* tamaño en burbujas/textarea */
-      --small-font-size: 11.5px;   
+      --ui-font-size: 12.5px;
+      --bubble-font-size: 12.5px;
+      --small-font-size: 11.5px;
     }
     @media (prefers-color-scheme: light) {
       :root {
-        --bg: #f1f5f9;
-        --panel: #ffffff;
-        --bubble-user: #2563eb;
-        --bubble-bot: #f3f4f6;
-        --text: #0f172a;
-        --muted: #475569;
-        --accent: #16a34a;
-        --border: #e5e7eb;
+        --bg: #f1f5f9; --panel: #ffffff; --bubble-user: #2563eb;
+        --bubble-bot: #f3f4f6; --text: #0f172a; --muted: #475569;
+        --accent: #16a34a; --border: #e5e7eb;
       }
     }
-
     * { box-sizing: border-box; }
     html, body { height: 100%; }
     body {
-      margin: 0; background: radial-gradient(1200px 800px at 20% -10%, rgba(34,197,94,.15), transparent 60%),
+      margin: 0;
+      background: radial-gradient(1200px 800px at 20% -10%, rgba(34,197,94,.15), transparent 60%),
                  radial-gradient(900px 600px at 120% 0%, rgba(59,130,246,.12), transparent 50%), var(--bg);
-      color: var(--text); font-family: system-ui, -apple-system, Segoe UI, Roboto, Inter, sans-serif;
-      line-height: 1.35;
+      color: var(--text); font-family: system-ui, -apple-system, Segoe UI, Roboto, Inter, sans-serif; line-height: 1.35;
     }
-
-    .shell {
-      max-width: 920px; margin: 0 auto; padding: 24px;
-      display: grid; grid-template-rows: auto 1fr auto; gap: 16px; height: 100dvh;
-    }
-
-    header {
-      display: flex; align-items: center; justify-content: space-between; gap: 12px;
-      padding: 10px 14px; border: 1px solid var(--border); background: var(--panel); border-radius: 14px;
-    }
+    .shell { max-width: 920px; margin: 0 auto; padding: 24px; display: grid; grid-template-rows: auto 1fr auto; gap: 16px; height: 100dvh; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border: 1px solid var(--border); background: var(--panel); border-radius: 14px; }
     .brand { display: flex; align-items: center; gap: 12px; }
-    .badge { font-size: 12px; color: var(--muted); }
-    .today { font-size: 12px; color: var(--muted); }
+    .badge, .today { font-size: 12px; color: var(--muted); }
 
-    .toolbar {
-      display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
-    }
-    .chip {
-      border: 1px solid var(--border); background: transparent; color: var(--text);
-      padding: 6px 10px; border-radius: 999px; cursor: pointer; font-size: 13px;
-    }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .chip { border: 1px solid var(--border); background: transparent; color: var(--text); padding: 6px 10px; border-radius: 999px; cursor: pointer; font-size: 13px; }
     .chip:hover { border-color: var(--muted); }
     .toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
 
-    #chatbox {
-      border: 1px solid var(--border); background: var(--panel); border-radius: 16px;
-      padding: 12px; display: grid; grid-template-rows: 1fr auto; min-height: 0;
-    }
-    #chatlog {
-      overflow-y: auto; padding: 8px; min-height: 280px; max-height: 64vh;
-      scroll-behavior: smooth;
-    }
+    #chatbox { border: 1px solid var(--border); background: var(--panel); border-radius: 16px; padding: 12px; display: grid; grid-template-rows: 1fr auto; min-height: 0; }
+    #chatlog { overflow-y: auto; padding: 8px; min-height: 280px; max-height: 64vh; scroll-behavior: smooth; }
     .row { display: flex; margin: 10px 0; gap: 10px; }
     .row.user { justify-content: flex-end; }
-    .bubble {
-      max-width: min(78%, 680px); padding: 10px 12px; border-radius: 14px; border: 1px solid var(--border);
-      white-space: pre-wrap; word-wrap: break-word; overflow-wrap: anywhere;
-    }
+    .bubble { max-width: min(78%, 680px); padding: 10px 12px; border-radius: 14px; border: 1px solid var(--border); white-space: pre-wrap; word-wrap: break-word; overflow-wrap: anywhere; }
     .user .bubble { background: var(--bubble-user); color: #fff; border-color: transparent; }
     .bot .bubble { background: var(--bubble-bot); }
     .meta { font-size: 11px; color: var(--muted); margin-top: 4px; }
 
-    /* Markdown básico */
     .bubble h1,.bubble h2,.bubble h3{ margin: .4em 0 .2em; }
     .bubble p{ margin: .4em 0; }
     .bubble ul{ margin: .4em 0 .4em 1.1em; }
     .bubble li{ margin: .25em 0; }
-    .bubble code{ padding: 2px 4px; border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-                  font-size: .95em; background: rgba(148,163,184,.2); }
+    .bubble code{ padding: 2px 4px; border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .95em; background: rgba(148,163,184,.2); }
     .bubble pre{ padding: 10px; border-radius: 8px; overflow:auto; background: rgba(148,163,184,.15); border: 1px dashed var(--border); }
     .bubble a{ color: #93c5fd; text-decoration: underline; }
 
-    form#composer {
-      display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 8px;
-      border-top: 1px dashed var(--border);
-    }
+    form#composer { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 8px; border-top: 1px dashed var(--border); }
     textarea {
       resize: none; min-height: 44px; max-height: 160px; padding: 10px 12px; border-radius: 12px;
-      background: transparent; color: var(--text); border: 1px solid var(--border);
-      outline: none;
+      background: transparent; color: var(--text); border: 1px solid var(--border); outline: none;
     }
     textarea:focus { border-color: var(--muted); }
-    button.send {
-      padding: 10px 16px; border-radius: 12px; border: none; cursor: pointer;
-      background: linear-gradient(135deg, var(--accent), #10b981); color: #052e16; font-weight: 700;
-    }
+    button.send { padding: 10px 16px; border-radius: 12px; border: none; cursor: pointer; background: linear-gradient(135deg, var(--accent), #10b981); color: #052e16; font-weight: 700; }
     button.send[disabled]{ opacity: .6; cursor: not-allowed; }
 
     .actions { display: flex; gap: 8px; }
-    .ghost {
-      padding: 8px 10px; border-radius: 10px; border: 1px solid var(--border); background: transparent; color: var(--text);
-      cursor: pointer; font-size: 13px;
-    }
+    .ghost { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--border); background: transparent; color: var(--text); cursor: pointer; font-size: 13px; }
     .ghost:hover{ border-color: var(--muted); }
-    .thinking {
-      display:inline-block; width: 1.2em; text-align: left;
-      animation: dots 1.2s steps(4, end) infinite; font-family: monospace;
-    }
+    .thinking { display:inline-block; width: 1.2em; text-align: left; animation: dots 1.2s steps(4, end) infinite; font-family: monospace; }
     @keyframes dots { 0%{content:""} 25%{content:"."} 50%{content:".."} 75%{content:"..."} }
   </style>
 </head>
@@ -125,7 +81,8 @@
     <header>
       <div class="brand">
         <div>
-          <strong>Smart City Tour</strong><div class="badge">Asistente turístico local</div>
+          <strong>Smart City Tour</strong>
+          <div class="badge" id="geo-status">Ubicación: desconocida</div> <!-- NEW -->
         </div>
       </div>
       <div class="today" id="today"></div>
@@ -139,7 +96,13 @@
         <button class="chip" data-q="bares con terraza">Bares</button>
         <button class="chip" data-q="piscinas públicas">Piscinas</button>
         <button class="chip" data-q="parques naturales">Parques</button>
+
         <label class="toggle"><input type="checkbox" id="plan-hoy" /> Plan para hoy</label>
+        <label class="toggle"><input type="checkbox" id="use-geo" /> Usar mi ubicación</label> <!-- NEW -->
+        <label class="toggle">Inicio
+          <input type="time" id="start-time" value="09:30" style="background:transparent;color:var(--text);border:1px solid var(--border);border-radius:8px;padding:4px 6px;font-size:12px" />
+        </label> <!-- NEW -->
+
         <div class="actions" style="margin-left:auto">
           <button class="ghost" id="clear">Limpiar</button>
           <button class="ghost" id="export">Exportar</button>
@@ -161,9 +124,13 @@
     const input = $("#user-input");
     const sendBtn = $("#send");
     const planHoy = $("#plan-hoy");
+    const useGeo = $("#use-geo");               // NEW
+    const startTimeEl = $("#start-time");       // NEW
     const todayBox = $("#today");
+    const geoStatus = $("#geo-status");         // NEW
 
-    // Fecha local bonita (Europe/Madrid; el backend ya opera con esta zona)
+    let userLat = null, userLon = null;         // NEW
+
     function setToday() {
       const d = new Date();
       const fmt = new Intl.DateTimeFormat("es-ES", { dateStyle: "full", timeStyle: "short" });
@@ -175,7 +142,6 @@
     let chatHistory = JSON.parse(localStorage.getItem("chatHistory") || "[]");
     function saveHistory(){ localStorage.setItem("chatHistory", JSON.stringify(chatHistory)); }
 
-    // Render inicial si hay historial
     if (chatHistory.length === 0) {
       addBot("¡Hola! ¿En qué puedo ayudarte hoy?");
       chatHistory.push({ role: "assistant", content: "¡Hola! ¿En qué puedo ayudarte hoy?" });
@@ -187,21 +153,14 @@
 
     // ===== Markdown muy básico =====
     function mdToHtml(md) {
-      // escapado mínimo
       md = md.replace(/[<>&]/g, s => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[s]));
-      // code blocks ``` ```
       md = md.replace(/```([\s\S]*?)```/g, (m, p1) => `<pre><code>${p1}</code></pre>`);
-      // inline code
       md = md.replace(/`([^`]+)`/g, '<code>$1</code>');
-      // strong / em
       md = md.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
       md = md.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-      // links
       md = md.replace(/(https?:\/\/[^\s)]+)(?![^<]*>)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
-      // lists simple
       md = md.replace(/(?:^|\n)[\-\•]\s+(.*)/g, (m, p1) => `\n<li>${p1}</li>`);
       md = md.replace(/(<li>[\s\S]*<\/li>)/g, '<ul>$1</ul>');
-      // line breaks
       md = md.replace(/\n{2,}/g, '\n\n').replace(/\n/g, '<br>');
       return md;
     }
@@ -228,13 +187,12 @@
     function addBot(text)  { addRow("assistant", text); }
     function scrollBottom(){ chatlog.scrollTop = chatlog.scrollHeight; }
 
-    // chips rápidas
     $$(".chip").forEach(b => b.addEventListener("click", () => {
-      input.value = b.dataset.q;
+      const q = normalizeQuery(b.dataset.q || "");
+      input.value = q;
       input.focus();
     }));
 
-    // limpiar / exportar
     $("#clear").addEventListener("click", () => {
       chatHistory = [];
       localStorage.removeItem("chatHistory");
@@ -253,14 +211,73 @@
       URL.revokeObjectURL(a.href);
     });
 
-    // Envío
+    /* ==========================
+       Normalización semántica
+       ========================== */
+    const CANON_MAP = [
+      { re: /\b(piscinas?\s+p(ú|u)blicas?)\b/i, canon: "piscinas" },
+      { re: /\b(piscina(s)?\s+cubierta(s)?)\b/i, canon: "piscinas" },
+      { re: /\b(gimnasios?)\b/i, canon: "gimnasios" },
+      { re: /\b(spas?|balnearios?)\b/i, canon: "spas y balnearios urbanos" },
+      { re: /\b(pistas?\s+de\s+hielo)\b/i, canon: "pistas de hielo" },
+      { re: /\b(parques?\s+naturales?)\b/i, canon: "parques y jardines" },
+      { re: /\b(galer(í|i)as?\s+de\s+arte)\b/i, canon: "galerías de arte" },
+      { re: /\b(zoo(l(ó|o)gicos?)?|zoo)\b/i, canon: "zoológico" },
+      { re: /\b(caf(é|e)s?)\b/i, canon: "cafés" },
+      { re: /\b(cocteler(í|i)as?)\b/i, canon: "coctelerías" },
+      { re: /\b(bare?s?\s+con\s+terraza)\b/i, canon: "bares con terraza" },
+      { re: /\b(oficina(\s+de)?\s+turismo)\b/i, canon: "oficina turismo" },
+      { re: /\b(atracciones?\s+tur(í|i)sticas?)\b/i, canon: "atracciones turísticas" },
+      { re: /\b(estaci(ó|o)n\s+de\s+metro)\b/i, canon: "transporte estacion metro" },
+      { re: /\b(estaci(ó|o)n\s+de\s+tren)\b/i, canon: "transporte estacion tren" },
+      { re: /\b(parada\s+de?\s*bus)\b/i, canon: "parada_bus" },
+    ];
+    const PLAN_HINTS = [
+      /\b(hoy|esta\s+ma(ñ|n)ana|esta\s+tarde|esta\s+noche|este\s+finde|fin\s+de\s+semana)\b/i,
+      /\b(itinerario|ruta|tour|recorrido|agenda|plan(ificaci(ó|o)n)?)\b/i
+    ];
+    function normalizeQuery(raw) {
+      let q = raw.trim();
+      CANON_MAP.forEach(({re, canon}) => { q = q.replace(re, canon); });
+      return q.replace(/\s{2,}/g, " ").trim();
+    }
+    function shouldPlan(raw) { return PLAN_HINTS.some(re => re.test(raw)); }
+
+    // ===== Geolocalización (opcional) =====
+    async function requestGeo() { // NEW
+      if (!navigator.geolocation) {
+        geoStatus.textContent = "Ubicación: no soportada";
+        return;
+      }
+      geoStatus.textContent = "Ubicación: solicitando permiso…";
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          userLat = +(pos.coords.latitude.toFixed(6));
+          userLon = +(pos.coords.longitude.toFixed(6));
+          geoStatus.textContent = `Ubicación: ✓ (${userLat}, ${userLon})`;
+        },
+        (err) => {
+          geoStatus.textContent = "Ubicación: denegada o no disponible";
+          userLat = userLon = null;
+          console.warn("Geolocation error:", err);
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
+      );
+    }
+    useGeo.addEventListener("change", () => { // NEW
+      if (useGeo.checked) requestGeo();
+      else { userLat = userLon = null; geoStatus.textContent = "Ubicación: desactivada"; }
+    });
+
+    // ===== Envío (con normalización + plan + ubicación)
     $("#composer").addEventListener("submit", async (e) => {
       e.preventDefault();
       const raw = input.value.trim();
       if (!raw) return;
 
-      // si plan-hoy está activo, reforzamos la intención
-      const pregunta = planHoy.checked ? (`plan para hoy: ${raw}`) : raw;
+      const qNorm = normalizeQuery(raw);
+      const usePlan = planHoy.checked || shouldPlan(raw);
+      const pregunta = usePlan ? `plan para hoy: ${qNorm}` : qNorm;
 
       chatHistory.push({ role: "user", content: pregunta });
       saveHistory();
@@ -268,23 +285,35 @@
       input.value = "";
       input.style.height = "auto";
 
-      // mensaje “pensando…”
       const thinking = document.createElement("div");
       thinking.className = "row assistant";
       thinking.innerHTML = `<div class="bubble">Pensando<span class="thinking">...</span></div>`;
       chatlog.appendChild(thinking);
       scrollBottom();
 
-      // bloquear botón durante la petición
       sendBtn.disabled = true;
 
       try {
+        // NEW: montamos el payload para el backend mejorado
+        const payload = {
+          messages: chatHistory,
+          start_time: startTimeEl.value || "09:30",
+        };
+        if (useGeo.checked && userLat != null && userLon != null) {
+          payload.start_lat = userLat;
+          payload.start_lon = userLon;
+          // (Opcionales) puedes exponer sliders/inputs si quieres:
+          // payload.max_hop_km = 20;
+          // payload.max_radius_km = 35;
+          // payload.visit_minutes = 60;
+        }
+
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 30000); // 30s
+        const timeout = setTimeout(() => controller.abort(), 30000);
         const res = await fetch("/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: chatHistory }),
+          body: JSON.stringify(payload),
           signal: controller.signal
         });
         clearTimeout(timeout);
@@ -295,6 +324,7 @@
           lastBubble.innerHTML = mdToHtml(data.response);
           chatHistory.push({ role: "assistant", content: data.response });
           saveHistory();
+          enhanceNoMatch(raw, data.response, lastBubble);
         } else {
           lastBubble.textContent = "❌ Error en la respuesta";
         }
@@ -312,13 +342,33 @@
       input.style.height = "auto";
       input.style.height = Math.min(input.scrollHeight, 160) + "px";
     });
-    // Shift+Enter → salto de línea, Enter → enviar
     input.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         $("#composer").requestSubmit();
       }
     });
+
+    // Fallback UX
+    function isNoMatch(text) {
+      const t = (text || "").toLowerCase();
+      return t.includes("no encontr") || t.includes("no tengo datos");
+    }
+    function enhanceNoMatch(userRaw, assistantText, bubbleEl) {
+      if (!isNoMatch(assistantText)) return;
+      const soft = normalizeQuery(userRaw);
+      const suggestions = [];
+      if (/piscina/i.test(soft)) suggestions.push("piscinas");
+      if (/parque/i.test(soft)) suggestions.push("parques y jardines");
+      if (/muse/i.test(soft)) suggestions.push("museos");
+      if (/bar/i.test(soft)) suggestions.push("bares con terraza");
+
+      if (suggestions.length) {
+        const sug = suggestions.map(s => `• ${s}`).join("<br>");
+        const html = `<br><div class="meta">¿Te refieres a alguna de estas búsquedas?<br>${sug}</div>`;
+        bubbleEl.insertAdjacentHTML("beforeend", html);
+      }
+    }
   </script>
 </body>
 </html>
