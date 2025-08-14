@@ -314,8 +314,66 @@ def formatear_itinerario(items):
 # ======================
 # Detectar tipo de pregunta (tolerante)
 # ======================
-KEYS_PLAN = ["plan", "planner", "planificacion", "planificación", "itinerario", "agenda", "visita", "ruta", "tour", "hoy"]
-KEYS_GENERAL = ["bar", "bares", "piscina", "piscinas", "museo", "museos", "cafe", "cafeteria", "cafetería", "parque", "parques"]
+# ======================
+# Detección de intención
+# ======================
+def _dedupe_norm(words):
+    seen = set()
+    out = []
+    for w in words:
+        nw = norm_text(w)
+        if nw and nw not in seen:
+            seen.add(nw); out.append(nw)
+    return out
+
+CATEGORY_SYNONYMS = {
+    "alojamientos":[
+        "alojamiento","hotel","hoteles","hostal","hostales","albergue","albergues",
+        "apartahotel","apartahoteles","pensión","pensiones","casa de huéspedes",
+        "camping","campings","residencia universitaria","residencias universitarias"
+    ],
+    "comida y bebida":[
+        "restaurante","restaurantes","bar","bares","cafetería","cafeterias","café","cafes",
+        "terraza","terrazas","coctelería","coctelerias","bar de copas","copas","chocolatería","chocolaterias","tapas"
+    ],
+    "eventos y vida nocturna":[
+        "discoteca","discotecas","club","clubs","pub","pubs","karaoke","karaokes",
+        "música en directo","concierto","conciertos","bingos","casino","casinos","bingos y casinos"
+    ],
+    "recreación y deporte":[
+        "parque","parques","centro de ocio","centros de ocio","centro deportivo","centros deportivos",
+        "instalaciones deportivas","gimnasio","gimnasios","piscina","piscinas","pista de hielo","pistas de hielo",
+        "spa","spas","balneario","balnearios","golf","alquiler de bicicletas","bicicletas"
+    ],
+    "templos religiosos":[
+        "iglesia","iglesias","mezquita","mezquitas","templo hindú","templos hindúes","templo hindu","templos hindues"
+    ],
+    "turismo":[
+        "atracción turística","atracciones turísticas","atraccion turistica",
+        "oficina de turismo","oficina turismo","guía turístico","guías turísticos",
+        "guia turistico","guias turisticos","empresa de guías","empresas de guías",
+        "parques y jardines","edificios y monumentos","consigna","espacios para eventos"
+    ],
+    "transporte":[
+        "parada de bus","parada bus","autobús","bus","metro","estación de metro",
+        "tren","estación de tren","estacion de tren","estacion de metro"
+    ],
+    "espacios culturales":[
+        "museo","museos","galería","galerías","galeria","galerias",
+        "biblioteca","bibliotecas","instalaciones culturales","zoológico","zoo","zoologico"
+    ],
+    "comercio":[ "centro comercial","centros comerciales","tienda","tiendas" ],
+    "estudio":[ "escuela de cocina","escuelas de cocina","cata de vinos","catas de vinos","cata de aceites","catas de aceites","academia","taller","talleres" ],
+    "oficinas y puntos de atención":[ "oficina","punto de atención","puntos de atención","atención al cliente" ],
+}
+KEYS_GENERAL = _dedupe_norm([w for ls in CATEGORY_SYNONYMS.values() for w in ls])
+KEYS_PLAN = _dedupe_norm([
+    "plan","planazo","planner","planificacion","planificación",
+    "itinerario","ruta","tour","free tour","visita","visita guiada",
+    "recorrido","agenda","programa","excursión","excursion",
+    "hoy","mañana","tarde","noche","finde","fin de semana",
+    "qué hacer","que hacer","donde ir","dónde ir"
+])
 
 def contiene_fuzzy(texto, palabras, umbral=0.72):
     tks = tokenize(texto or "")
@@ -325,11 +383,16 @@ def contiene_fuzzy(texto, palabras, umbral=0.72):
                 return True
     return False
 
+
 def detectar_tipo_pregunta(texto):
     texto = texto or ""
-    if contiene_fuzzy(texto, KEYS_PLAN, umbral=0.72):
+    hay_plan = contiene_fuzzy(texto, KEYS_PLAN, umbral=0.7)
+    hay_cat = contiene_fuzzy(texto, KEYS_GENERAL, umbral=0.7)
+    if hay_plan and hay_cat:
         return "planificacion"
-    if contiene_fuzzy(texto, KEYS_GENERAL, umbral=0.72):
+    if hay_plan:
+        return "planificacion"
+    if hay_cat:
         return "general_con_datos"
     if similar(texto, "plan") >= 0.6 or similar(texto, "itinerario") >= 0.6:
         return "planificacion"
@@ -539,3 +602,5 @@ def widget():
 # ======================
 if __name__ == "__main__":
     app.run(debug=True)
+
+
