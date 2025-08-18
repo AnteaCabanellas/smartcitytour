@@ -72,7 +72,7 @@ def haversine_km(lat1, lon1, lat2, lon2):
 # ======================
 try:
     # Forzar codificación y separador
-    df = pd.read_csv("data/Consolidada.csv", encoding="latin-1", sep=";")
+    df = pd.read_csv("data/BBDDTUI_unida.csv", encoding="latin-1", sep=";")
     df.columns = df.columns.str.strip().str.upper()
 
     STR_COLS = [
