@@ -92,6 +92,10 @@
         bottom: 96px;
       }
     }
+    @media (prefers-reduced-motion: reduce){
+      #sct-launcher{ transition:none }
+      #sct-launcher.rebote{ animation:none }
+    }
   </style>
 </head>
 <body>
@@ -133,8 +137,8 @@
       btn.innerHTML = open ? '✖' : bubbleSVG;
 
       if (open){
-        btn.classList.remove('rebote');
-        void btn.offsetWidth;
+        btn.classList.remove('rebote'); // reinicia anim
+        void btn.offsetWidth;           // reflow
         btn.classList.add('rebote');
         btn.addEventListener('animationend', () => btn.classList.remove('rebote'), { once:true });
       }
