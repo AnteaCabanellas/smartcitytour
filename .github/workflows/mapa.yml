@@ -1,0 +1,40 @@
+name: Rebuild Map
+
+on:
+  push:
+    paths:
+      - 'data/BBDDTUI_unida.csv'   # se dispara solo si cambia este CSV
+  workflow_dispatch: {}            # también permite lanzarlo manualmente desde GitHub
+
+jobs:
+  build-map:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'   # o la versión que uséis (>=3.8 recomendado)
+
+      - name: Install deps for map generator
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r scripts/requirements.txt
+
+      - name: Generate map HTML
+        run: |
+          python scripts/make_map_madrid.py \
+            --csv data/BBDDTUI_unida.csv \
+            --out static/mapa/mapa_madrid.html \
+            --cache data/geocode_cache.db
+
+      - name: Commit updated map
+        run: |
+          git config user.name  "CI Bot"
+          git config user.email "ci@example.com"
+          git add static/mapa/mapa_madrid.html
+          git commit -m "CI: update mapa_madrid.html" || echo "No changes"
+          git push

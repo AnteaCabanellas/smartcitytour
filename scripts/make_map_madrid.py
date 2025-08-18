@@ -5,8 +5,8 @@ from geopy.geocoders import Nominatim
 from ratelimit import limits, sleep_and_retry
 
 # ------------------------------------------------------------------
-CSV_FILE  = "madridactividades.csv"
-HTML_OUT  = "mapa_alojamientos.html"
+CSV_FILE  = "data/BBDDTUI_unida.csv"
+HTML_OUT  = "static/mapa/mapa_madrid.html"
 CACHE_DB  = "geocode_cache.db"
 
 # diccionario «categoría → emoji»
@@ -24,21 +24,67 @@ CAT2EMOJI = {
 # ------------------------------------------------------------------
 
 # 1) CARGA Y LIMPIEZA ───────────────────────────────────────
-df = pd.read_csv(
-        CSV_FILE,
-        sep=",",
-        encoding="utf-8-sig",
-        dtype=str,
-        on_bad_lines="skip",
-        usecols=[
-            "NOMBRE_TUI", "DESCRIPCION_TUI",
-            "LATITUD_TUI", "LONGITUD_TUI",
-            "DIRECCION_TUI", "CATEGORIA_TUI",
-            "TELEFONO", "EMAIL", "HORARIO", "CONTENT_URL",
-            "Categoria_1", "Categoria_2", "Categoria_3",
-            "Categoria_4", "Categoria_5", "Categoria_6", "Categoria_7"
-        ]
-)
+# 1) CARGA Y LIMPIEZA ───────────────────────────────────────
+# Lectura robusta del CSV: prueba varias codificaciones y separadores,
+# preserva tipos como 'str' y selecciona sólo las columnas objetivo si existen.
+
+TARGET_COLS = [
+    "NOMBRE_TUI", "DESCRIPCION_TUI",
+    "LATITUD_TUI", "LONGITUD_TUI",
+    "DIRECCION_TUI", "CATEGORIA_TUI",
+    "TELEFONO", "EMAIL", "HORARIO", "CONTENT_URL",
+    "Categoria_1", "Categoria_2", "Categoria_3",
+    "Categoria_4", "Categoria_5", "Categoria_6", "Categoria_7"
+]
+
+def read_csv_robust(path):
+    encodings  = ("utf-8-sig", "utf-8", "cp1252", "latin1")
+    separators = (",", ";")
+    last_err = None
+
+    for enc in encodings:
+        for sep in separators:
+            try:
+                # 1º intento: leer pidiendo sólo las columnas objetivo
+                df = pd.read_csv(
+                    path,
+                    sep=sep,
+                    encoding=enc,
+                    dtype=str,
+                    on_bad_lines="skip",   # requiere pandas >= 1.3
+                    engine="python",
+                    usecols=TARGET_COLS
+                )
+                return df
+            except ValueError as ve:
+                # Puede fallar porque no encuentra todas las columnas solicitadas.
+                # En ese caso, leemos TODO y luego nos quedamos con la intersección.
+                try:
+                    df_all = pd.read_csv(
+                        path,
+                        sep=sep,
+                        encoding=enc,
+                        dtype=str,
+                        on_bad_lines="skip",
+                        engine="python"
+                    )
+                    keep = [c for c in TARGET_COLS if c in df_all.columns]
+                    if not keep:
+                        raise ve  # no hay ninguna columna útil, reintentar con otro (enc, sep)
+                    return df_all[keep].copy()
+                except Exception as e2:
+                    last_err = e2
+            except UnicodeDecodeError as ude:
+                last_err = ude
+            except Exception as e:
+                last_err = e
+
+    # Si nada funcionó, relanza el último error para depurar
+    raise last_err if last_err else RuntimeError("No se pudo leer el CSV con los encodings/separadores probados.")
+
+# Llamada efectiva
+df = read_csv_robust(CSV_FILE)
+
 
 # Añadimos una columna "ID" única para cada registro
 # Aquí uso el índice del DataFrame, pero podría ser otro identificador
