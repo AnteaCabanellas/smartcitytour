@@ -12,12 +12,19 @@ from math import radians, sin, cos, asin, sqrt
 from datetime import datetime
 import pytz
 from openai import OpenAI
+import time
 
 # ======================
 # Configuración básica
 # ======================
 load_dotenv()
 app = Flask(__name__)
+
+@app.context_processor
+def inject_build_version():
+    # Valor que forzará a refrescar el iframe del mapa cuando reinicies o se regenere el HTML
+    return {'build_version': int(time.time())}
+
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 MAD_TZ = pytz.timezone("Europe/Madrid")
@@ -66,7 +73,7 @@ def haversine_km(lat1, lon1, lat2, lon2):
 # Carga y limpieza CSV (adaptado a nuevas columnas)
 # ======================
 try:
-    df = pd.read_csv("data/Consolidada.csv", encoding="latin-1", sep=";")
+    df = pd.read_csv("data/BBDDTUI_unida", encoding="latin-1", sep=";")
     df.columns = df.columns.str.strip().str.upper()
 
     # <<< CAMBIO: nuevas columnas principales y equivalencias
