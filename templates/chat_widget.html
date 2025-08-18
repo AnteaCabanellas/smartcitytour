@@ -82,7 +82,7 @@
       <div class="brand">
         <div>
           <strong>Smart City Tour</strong>
-          <div class="badge" id="geo-status">Ubicación: desconocida</div> <!-- NEW -->
+          <div class="badge" id="geo-status">Ubicación: desconocida</div>
         </div>
       </div>
       <div class="today" id="today"></div>
@@ -92,16 +92,20 @@
       <div id="chatlog" aria-live="polite"></div>
 
       <div class="toolbar" style="padding:8px 8px 0;">
-        <button class="chip" data-q="museos interesantes">Museos</button>
-        <button class="chip" data-q="bares con terraza">Bares</button>
-        <button class="chip" data-q="piscinas públicas">Piscinas</button>
-        <button class="chip" data-q="parques naturales">Parques</button>
+        <!-- Chips actualizados para CATEGORIA_TUI/TIPOS_TUI -->
+        <button class="chip" data-q="cultura y arte: museos interesantes">Museos</button>
+        <button class="chip" data-q="gastronomía y ocio nocturno: bares con terraza">Bares</button>
+        <button class="chip" data-q="bienestar y deporte: gimnasios y piscinas">Gimnasios/Piscinas</button>
+        <button class="chip" data-q="naturaleza y actividades al aire libre: parques y jardines">Parques</button>
+        <button class="chip" data-q="compras: centros comerciales">Compras</button>
+        <button class="chip" data-q="cultura y arte: galerías de arte">Galerías</button>
 
         <label class="toggle"><input type="checkbox" id="plan-hoy" /> Plan para hoy</label>
-        <label class="toggle"><input type="checkbox" id="use-geo" /> Usar mi ubicación</label> <!-- NEW -->
+        <label class="toggle"><input type="checkbox" id="use-geo" /> Usar mi ubicación</label>
+        <label class="toggle"><input type="checkbox" id="prefer-open" /> Priorizar abiertos ahora</label>
         <label class="toggle">Inicio
           <input type="time" id="start-time" value="09:30" style="background:transparent;color:var(--text);border:1px solid var(--border);border-radius:8px;padding:4px 6px;font-size:12px" />
-        </label> <!-- NEW -->
+        </label>
 
         <div class="actions" style="margin-left:auto">
           <button class="ghost" id="clear">Limpiar</button>
@@ -124,12 +128,13 @@
     const input = $("#user-input");
     const sendBtn = $("#send");
     const planHoy = $("#plan-hoy");
-    const useGeo = $("#use-geo");               // NEW
-    const startTimeEl = $("#start-time");       // NEW
+    const useGeo = $("#use-geo");
+    const preferOpen = $("#prefer-open");
+    const startTimeEl = $("#start-time");
     const todayBox = $("#today");
-    const geoStatus = $("#geo-status");         // NEW
+    const geoStatus = $("#geo-status");
 
-    let userLat = null, userLon = null;         // NEW
+    let userLat = null, userLon = null;
 
     function setToday() {
       const d = new Date();
@@ -215,22 +220,24 @@
        Normalización semántica
        ========================== */
     const CANON_MAP = [
+      // Bloque nuevo alineado a tus CATEGORIA_TUI / TIPOS_TUI
+      { re: /\b(gastronom(í|i)a(\s+y\s+)?ocio\s+nocturno|bares?|cocteler(í|i)as?|tapas?)\b/i, canon: "gastronomía y ocio nocturno" },
+      { re: /\b(bares?\s+con\s+terraza)\b/i, canon: "gastronomía y ocio nocturno bares con terraza" },
+      { re: /\b(bienestar(\s+y\s+)?deporte|gimnasios?|piscinas?|spas?|balnearios?)\b/i, canon: "bienestar y deporte" },
+      { re: /\b(cultura(\s+y\s+)?arte|museos?|galer(í|i)as?\s+de\s+arte|cines?|teatros?)\b/i, canon: "cultura y arte" },
+      { re: /\b(naturaleza(\s+y\s+)?actividades(\s+al\s+aire\s+libre)?|senderismo|monta(ñ|n)as?|parques?|jardines?)\b/i, canon: "naturaleza y actividades al aire libre" },
+      { re: /\b(compras?|centros?\s+comerciales?|tiendas?|mercados?|perfumer(í|i)as?)\b/i, canon: "compras" },
+      { re: /\b(alojamientos?|hoteles?|hostales?|albergues?|apartamentos?\s+tur(í|i)sticos?)\b/i, canon: "alojamiento" },
+      { re: /\b(religi(ó|o)n|iglesias?|catedrales?|basilicas?|monasterios?|mezquitas?|templos?)\b/i, canon: "religión" },
+      { re: /\b(transporte|metro|tren|estaciones?|aeropuertos?|aparcamientos?)\b/i, canon: "transporte" },
+      // Algunos mapeos previos útiles
+      { re: /\b(oficina(\s+de)?\s+turismo)\b/i, canon: "oficina de turismo" },
+      { re: /\b(galer(í|i)as?\s+de\s+arte)\b/i, canon: "cultura y arte galerías de arte" },
+      // Compatibilidad con lo antiguo
       { re: /\b(piscinas?\s+p(ú|u)blicas?)\b/i, canon: "piscinas" },
-      { re: /\b(piscina(s)?\s+cubierta(s)?)\b/i, canon: "piscinas" },
-      { re: /\b(gimnasios?)\b/i, canon: "gimnasios" },
-      { re: /\b(spas?|balnearios?)\b/i, canon: "spas y balnearios urbanos" },
-      { re: /\b(pistas?\s+de\s+hielo)\b/i, canon: "pistas de hielo" },
-      { re: /\b(parques?\s+naturales?)\b/i, canon: "parques y jardines" },
-      { re: /\b(galer(í|i)as?\s+de\s+arte)\b/i, canon: "galerías de arte" },
       { re: /\b(zoo(l(ó|o)gicos?)?|zoo)\b/i, canon: "zoológico" },
       { re: /\b(caf(é|e)s?)\b/i, canon: "cafés" },
-      { re: /\b(cocteler(í|i)as?)\b/i, canon: "coctelerías" },
-      { re: /\b(bare?s?\s+con\s+terraza)\b/i, canon: "bares con terraza" },
-      { re: /\b(oficina(\s+de)?\s+turismo)\b/i, canon: "oficina turismo" },
-      { re: /\b(atracciones?\s+tur(í|i)sticas?)\b/i, canon: "atracciones turísticas" },
-      { re: /\b(estaci(ó|o)n\s+de\s+metro)\b/i, canon: "transporte estacion metro" },
-      { re: /\b(estaci(ó|o)n\s+de\s+tren)\b/i, canon: "transporte estacion tren" },
-      { re: /\b(parada\s+de?\s*bus)\b/i, canon: "parada_bus" },
+      { re: /\b(parques?\s+naturales?)\b/i, canon: "parques y jardines" }
     ];
     const PLAN_HINTS = [
       /\b(hoy|esta\s+ma(ñ|n)ana|esta\s+tarde|esta\s+noche|este\s+finde|fin\s+de\s+semana)\b/i,
@@ -244,7 +251,7 @@
     function shouldPlan(raw) { return PLAN_HINTS.some(re => re.test(raw)); }
 
     // ===== Geolocalización (opcional) =====
-    async function requestGeo() { // NEW
+    async function requestGeo() {
       if (!navigator.geolocation) {
         geoStatus.textContent = "Ubicación: no soportada";
         return;
@@ -264,12 +271,12 @@
         { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
       );
     }
-    useGeo.addEventListener("change", () => { // NEW
+    useGeo.addEventListener("change", () => {
       if (useGeo.checked) requestGeo();
       else { userLat = userLon = null; geoStatus.textContent = "Ubicación: desactivada"; }
     });
 
-    // ===== Envío (con normalización + plan + ubicación)
+    // ===== Envío (con normalización + plan + ubicación) =====
     $("#composer").addEventListener("submit", async (e) => {
       e.preventDefault();
       const raw = input.value.trim();
@@ -294,7 +301,6 @@
       sendBtn.disabled = true;
 
       try {
-        // NEW: montamos el payload para el backend mejorado
         const payload = {
           messages: chatHistory,
           start_time: startTimeEl.value || "09:30",
@@ -302,10 +308,9 @@
         if (useGeo.checked && userLat != null && userLon != null) {
           payload.start_lat = userLat;
           payload.start_lon = userLon;
-          // (Opcionales) puedes exponer sliders/inputs si quieres:
-          // payload.max_hop_km = 20;
-          // payload.max_radius_km = 35;
-          // payload.visit_minutes = 60;
+        }
+        if (preferOpen.checked) {
+          payload.prefer_open = true; // el back puede usarlo para afinar el orden
         }
 
         const controller = new AbortController();
@@ -358,10 +363,10 @@
       if (!isNoMatch(assistantText)) return;
       const soft = normalizeQuery(userRaw);
       const suggestions = [];
-      if (/piscina/i.test(soft)) suggestions.push("piscinas");
-      if (/parque/i.test(soft)) suggestions.push("parques y jardines");
-      if (/muse/i.test(soft)) suggestions.push("museos");
-      if (/bar/i.test(soft)) suggestions.push("bares con terraza");
+      if (/piscina/i.test(soft)) suggestions.push("bienestar y deporte: piscinas");
+      if (/parque/i.test(soft)) suggestions.push("naturaleza y actividades al aire libre: parques y jardines");
+      if (/muse/i.test(soft)) suggestions.push("cultura y arte: museos");
+      if (/bar/i.test(soft)) suggestions.push("gastronomía y ocio nocturno: bares con terraza");
 
       if (suggestions.length) {
         const sug = suggestions.map(s => `• ${s}`).join("<br>");
