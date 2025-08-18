@@ -12,12 +12,19 @@ from math import radians, sin, cos, asin, sqrt
 from datetime import datetime
 import pytz
 from openai import OpenAI
+import time
 
 # ======================
 # Configuración básica
 # ======================
 load_dotenv()
 app = Flask(__name__)
+
+@app.context_processor
+def inject_build_version():
+    # Valor que forzará a refrescar el iframe del mapa cuando reinicies o se regenere el HTML
+    return {'build_version': int(time.time())}
+
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 MAD_TZ = pytz.timezone("Europe/Madrid")
