@@ -1,4 +1,5 @@
-import shelve, time, json
+# -*- coding: utf-8 -*-
+import shelve, time, json, re, unicodedata
 import pandas as pd, folium
 from tqdm import tqdm
 from geopy.geocoders import Nominatim
@@ -9,96 +10,94 @@ CSV_FILE  = "data/BBDDTUI_unida.csv"
 HTML_OUT  = "static/mapa/mapa_madrid.html"
 CACHE_DB  = "geocode_cache.db"
 
-# diccionario «categoría → emoji»
 CAT2EMOJI = {
-    "RESTAURANTES":               "🍽️",
-    "TIENDAS":                    "👗",
-    "PUNTOS DE INTERÉS TURÍSTICO":"🗽",
-    "LOCALES DE OCIO NOCTURNO":   "🍸",
-    "ESPACIOS DEPORTIVOS":        "⚽",
-    "ALOJAMIENTOS":               "🏨",
-    "IGLESIAS Y CATEDRALES":      "⛪",
-    "INFORMACIÓN TURISMO":        "ℹ️",
-    "OFICINAS TURISMO":           "🏢"
+    "TRANSPORTE":                   "🚖",
+    "GASOLINERAS Y APARCAMIENTOS":  "⛽",
+    "ALOJAMIENTOS":                 "🏨",
+    "ESPACIOS DEPORTIVOS":          "⚽",
+    "LOCALES DE OCIO NOCTURNO":     "🍸",
+    "GOBIERNO":                     "🏛️",
+    "COMIDA Y BEBIDA":              "🍽️",
+    "ESPACIOS RELIGIOSOS":          "🛐",
+    "TIENDAS":                      "🛍️",
+    "EDUCACIÓN":                    "🎓",
+    "SALUD":                        "🏥",
+    "CULTURA OCIO Y NATURALEZA":    "🎭",
+    "OFICINAS DE TURISMO":          "ℹ️",
 }
+
+grupos = {
+    "TRANSPORTE": ["Aeropuertos","Estaciones De Autobús","Estaciones De Metro","Estaciones De Tren"],
+    "GASOLINERAS Y APARCAMIENTOS": ["Aparcamientos","Gasolineras"],
+    "ALOJAMIENTOS": ["Albergues","Apartamentos Turísticos","Campings","Hostales","Hoteles"],
+    "ESPACIOS DEPORTIVOS": ["Campos De Fútbol","Campos De Golf","Gimnasios","Pistas De Tenis","Polideportivos","Senderismo","Piscinas","Spas"],
+    "LOCALES DE OCIO NOCTURNO": ["Casinos","Cervecerías","Coctelerías","Discotecas"],
+    "GOBIERNO": ["Ayuntamientos","Consulados","Embajadas"],
+    "COMIDA Y BEBIDA": ["Bares","Cafés","Cervecerías","Panaderías","Mercados","Restaurante","Supermercados","Tapas","Vegano","Vegetariano"],
+    "ESPACIOS RELIGIOSOS": ["Basílicas","Catedrales","Conventos","Convento","Ermitas","Iglesias","Mezquitas","Monasterios","Templos Budistas","Templos Hindúes","Conventos"],
+    "TIENDAS": ["Centros Comerciales","Joyerías","Librerías","Mercados","Perfumerías","Tiendas","Tiendas De Ropa","Zapaterías"],
+    "EDUCACIÓN": ["Bibliotecas","Colegios","Universidades"],
+    "SALUD": ["Clínicas","Farmacias","Hospitales"],
+    "CULTURA OCIO Y NATURALEZA": ["Centros Culturales","Cine","Galerías De Arte","Museos","Teatros","Zoológicos","Jardines","Montañas","Parques","Parques Acuáticos","Parques De Atracciones","Parques Naturales"],
+    "OFICINAS DE TURISMO": ["Oficinas De Turismo"],
+}
+
+# Categoría de respaldo
+if "OTROS" not in grupos:
+    grupos["OTROS"] = []
+if "OTROS" not in CAT2EMOJI:
+    CAT2EMOJI["OTROS"] = "📌"
+
 # ------------------------------------------------------------------
+# CARGA CSV
+df = pd.read_csv(CSV_FILE, sep=",", encoding="utf-8-sig", dtype=str, on_bad_lines="skip")
 
-# 1) CARGA Y LIMPIEZA ───────────────────────────────────────
-# 1) CARGA Y LIMPIEZA ───────────────────────────────────────
-# Lectura robusta del CSV: prueba varias codificaciones y separadores,
-# preserva tipos como 'str' y selecciona sólo las columnas objetivo si existen.
-
-TARGET_COLS = [
-    "NOMBRE_TUI", "DESCRIPCION_TUI",
-    "LATITUD_TUI", "LONGITUD_TUI",
-    "DIRECCION_TUI", "CATEGORIA_TUI",
-    "TELEFONO", "EMAIL", "HORARIO", "CONTENT_URL",
-    "Categoria_1", "Categoria_2", "Categoria_3",
-    "Categoria_4", "Categoria_5", "Categoria_6", "Categoria_7"
-]
-
-def read_csv_robust(path):
-    encodings  = ("utf-8-sig", "utf-8", "cp1252", "latin1")
-    separators = (",", ";")
-    last_err = None
-
-    for enc in encodings:
-        for sep in separators:
-            try:
-                # 1º intento: leer pidiendo sólo las columnas objetivo
-                df = pd.read_csv(
-                    path,
-                    sep=sep,
-                    encoding=enc,
-                    dtype=str,
-                    on_bad_lines="skip",   # requiere pandas >= 1.3
-                    engine="python",
-                    usecols=TARGET_COLS
-                )
-                return df
-            except ValueError as ve:
-                # Puede fallar porque no encuentra todas las columnas solicitadas.
-                # En ese caso, leemos TODO y luego nos quedamos con la intersección.
-                try:
-                    df_all = pd.read_csv(
-                        path,
-                        sep=sep,
-                        encoding=enc,
-                        dtype=str,
-                        on_bad_lines="skip",
-                        engine="python"
-                    )
-                    keep = [c for c in TARGET_COLS if c in df_all.columns]
-                    if not keep:
-                        raise ve  # no hay ninguna columna útil, reintentar con otro (enc, sep)
-                    return df_all[keep].copy()
-                except Exception as e2:
-                    last_err = e2
-            except UnicodeDecodeError as ude:
-                last_err = ude
-            except Exception as e:
-                last_err = e
-
-    # Si nada funcionó, relanza el último error para depurar
-    raise last_err if last_err else RuntimeError("No se pudo leer el CSV con los encodings/separadores probados.")
-
-# Llamada efectiva
-df = read_csv_robust(CSV_FILE)
-
-
-# Añadimos una columna "ID" única para cada registro
-# Aquí uso el índice del DataFrame, pero podría ser otro identificador
-# único y estable (por ejemplo CONTENT_URL)
+# ID único
 df.reset_index(inplace=True)
 df.rename(columns={"index": "ID"}, inplace=True)
 
-df["DESCRIPCION_TUI"] = df["DESCRIPCION_TUI"].fillna("")
-df["CATEGORIA_TUI"]   = df["CATEGORIA_TUI"].str.upper().str.strip()
+def safe_get_series(col, default=""):
+    if col in df.columns:
+        s = df[col]
+        return s if default is None else s.fillna(default)
+    return pd.Series([default] * len(df), index=df.index)
 
-df["LAT"] = pd.to_numeric(df["LATITUD_TUI"], errors="coerce")
-df["LON"] = pd.to_numeric(df["LONGITUD_TUI"], errors="coerce")
+df["DESCRIPCION_TUI"] = safe_get_series("DESCRIPCION_TUI", "").astype(str)
+df["CATEGORIA_TUI"]   = safe_get_series("CATEGORIA_TUI", "").astype(str)
+df["TIPOS_TUI"]       = safe_get_series("TIPOS_TUI", "").astype(str)
 
-# 2) FUNCION PARA GEOLOCALIZAR --------------------------------------
+def safe_get(val, default=""):
+    return default if (pd.isna(val) or (isinstance(val, str) and not val.strip())) else val
+
+# Mostrar NaN/vacíos como "nan"
+def nan_or_str(v):
+    return "nan" if (pd.isna(v) or (isinstance(v, str) and not v.strip())) else str(v).strip()
+
+# ------------------------------------------------------------------
+# LAT/LON (arreglo coma decimal + extracción robusta)
+lat_raw = safe_get_series("LATITUD_TUI", "").str.replace(",", ".", regex=False)
+lon_raw = safe_get_series("LONGITUD_TUI", "").str.replace(",", ".", regex=False)
+lat_num = pd.to_numeric(lat_raw.str.extract(r'(-?\d+(?:\.\d+)?)')[0], errors="coerce")
+lon_num = pd.to_numeric(lon_raw.str.extract(r'(-?\d+(?:\.\d+)?)')[0], errors="coerce")
+df["LAT"] = lat_num
+df["LON"] = lon_num
+
+# ------------------------------------------------------------------
+# RATING_TUI y TOTAL_VALORACIONES_TUI (conversión a numérico)
+rating_raw = safe_get_series("RATING_TUI", "")
+# Soporta "4,2" -> 4.2 y extrae el número
+rating_num = pd.to_numeric(
+    rating_raw.str.replace(",", ".", regex=False).str.extract(r'(-?\d+(?:\.\d+)?)')[0],
+    errors="coerce"
+)
+df["RATING"] = rating_num  # float
+
+reviews_raw = safe_get_series("TOTAL_VALORACIONES_TUI", "")
+reviews_num = pd.to_numeric(reviews_raw.str.extract(r'(\d+)')[0], errors="coerce")
+df["TOTAL_REVIEWS"] = reviews_num  # int (NaN si falta)
+
+# ------------------------------------------------------------------
+# Geocoder (sólo si faltan coords)
 geolocator = Nominatim(user_agent="mi_mapa_geocoder", timeout=10)
 
 @sleep_and_retry
@@ -112,12 +111,11 @@ def geocode(addr: str):
         pass
     return float("nan"), float("nan")
 
-# 3) COMPLETAR LAT/LON (con cache) ----------------------------------
 cache = shelve.open(CACHE_DB)
-for i, row in tqdm(df.iterrows(), total=len(df), desc="Geocodificando"):
+for i, row in tqdm(df.iterrows(), total=len(df), desc="Geocodificando faltantes"):
     if pd.notna(row["LAT"]) and pd.notna(row["LON"]):
         continue
-    addr = row["DIRECCION_TUI"]
+    addr = safe_get(row.get("DIRECCION_TUI", "")) or safe_get(row.get("DIRECCION", ""))
     if not addr:
         continue
     if addr in cache:
@@ -130,67 +128,175 @@ for i, row in tqdm(df.iterrows(), total=len(df), desc="Geocodificando"):
     df.at[i, "LON"] = lon
 cache.close()
 
-# 4) DESCARTAR FILAS SIN COORDENADAS --------------------------------
 df = df.dropna(subset=["LAT", "LON"])
 print("Filas válidas →", len(df))
 
-# 5) FUNCION PARA EXTRAER SUBCATEGORIAS -----------------------------
+# ------------------------------------------------------------------
+# Normalización + utilidades
+def norm(s: str) -> str:
+    s = str(s or "").strip()
+    s = unicodedata.normalize("NFD", s)
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    s = re.sub(r"\s+", " ", s).strip()
+    return s.casefold()
 
-def extract_subcats(row):
-    subs = []
-    for c in ["Categoria_1", "Categoria_2", "Categoria_3",
-              "Categoria_4", "Categoria_5", "Categoria_6", "Categoria_7"]:
-        val = row.get(c, "")
-        if pd.notna(val) and val.strip():
-            subs.append(val.strip())
-    return subs
+def split_normalize(cell: str):
+    """Separa por , | / ; · normaliza para comparar · deduplica manteniendo orden."""
+    parts = re.split(r"[,\|/;]+", str(cell or ""))
+    out, seen = [], set()
+    for p in parts:
+        p = p.strip()
+        if not p:
+            continue
+        np = norm(p)
+        if np not in seen:
+            seen.add(np)
+            out.append(p)
+    return out
 
-# 6) Preparar datos para JS -----------------------------------------
+# Mapeos canónicos
+norm_cat2canon = {norm(c): c for c in grupos.keys()}
+tipo2cat = {}
+valid_tipos_norm = set()
+for cat, lista in grupos.items():
+    for t in lista:
+        nt = norm(t)
+        valid_tipos_norm.add(nt)
+        tipo2cat.setdefault(nt, set()).add(cat)
+
+# ------------------------------------------------------------------
+# Construcción de records con LÓGICA DE UNIÓN (OR)
 records = []
+present_types_by_cat = {cat: set() for cat in grupos}
+cat_needing_empty = set()
+
 for _, r in df.iterrows():
-    main_cat = r["CATEGORIA_TUI"] or "SIN CATEGORÍA"
-    subcats  = extract_subcats(r) or ["(sin subcategoría)"]
-    record = {
+    # TIPOS reconocidos (canónicos)
+    tipos_src = split_normalize(r.get("TIPOS_TUI", ""))
+    tipos_valid = []
+    for t in tipos_src:
+        nt = norm(t)
+        if nt in valid_tipos_norm:
+            for cat, lista in grupos.items():
+                for can in lista:
+                    if norm(can) == nt:
+                        tipos_valid.append(can)
+                        break
+                else:
+                    continue
+                break
+
+    # CATEGORÍAS desde la columna
+    cats_src = split_normalize(r.get("CATEGORIA_TUI", ""))
+    cats_from_col = []
+    for c in cats_src:
+        nc = norm(c)
+        if nc in norm_cat2canon:
+            cats_from_col.append(norm_cat2canon[nc])
+
+    # CATEGORÍAS derivadas desde TIPOS
+    cats_from_types = []
+    for t in tipos_valid:
+        nt = norm(t)
+        for c in tipo2cat.get(nt, []):
+            if c not in cats_from_types:
+                cats_from_types.append(c)
+
+    # Unión OR (y fallback a OTROS)
+    categories = []
+    for c in cats_from_col + cats_from_types:
+        if c not in categories:
+            categories.append(c)
+    if not categories:
+        categories = ["OTROS"]
+
+    subcats_display = list(dict.fromkeys(tipos_valid))
+
+    cats_without_subs = set()
+    for cat in categories:
+        subs_in_cat = [s for s in subcats_display if s in grupos.get(cat, [])]
+        if subs_in_cat:
+            present_types_by_cat[cat].update(subs_in_cat)
+        else:
+            cats_without_subs.add(cat)
+    if cats_without_subs:
+        cat_needing_empty.update(cats_without_subs)
+
+    val_acces = nan_or_str(r.get("ACCESIBILIDAD_SILLA_RUEDAS"))
+    val_precio = nan_or_str(r.get("PRECIO"))
+    val_estado = nan_or_str(r.get("ESTADO_NEGOCIO"))
+    val_reserva = nan_or_str(r.get("RESERVA_POSIBLE"))
+
+    # rating y total_reviews numéricos (None si NaN)
+    rating_val = r.get("RATING")
+    rating_out = float(rating_val) if pd.notna(rating_val) else None
+    reviews_val = r.get("TOTAL_REVIEWS")
+    reviews_out = int(reviews_val) if pd.notna(reviews_val) else None
+
+    records.append({
         "id": int(r["ID"]),
-        "name": r["NOMBRE_TUI"] or "",
-        "description": r["DESCRIPCION_TUI"] or "",
+        "name": safe_get(r.get("NOMBRE_TUI", "") or r.get("NOMBRE", "")),
+        "description": safe_get(r.get("DESCRIPCION_TUI", "")),
         "lat": float(r["LAT"]),
         "lon": float(r["LON"]),
-        "address": r["DIRECCION_TUI"] or f"{r['LAT']:.5f}, {r['LON']:.5f}",
-        "main_category": main_cat,
-        "subcategories": subcats,
-        "email": r["EMAIL"] or "",
-        "phone": r["TELEFONO"] or "",
-        "url": r["CONTENT_URL"] or "",
-        "horario": r["HORARIO"] or ""
-    }
-    records.append(record)
+        "address": safe_get(r.get("DIRECCION_TUI", "") or r.get("DIRECCION", ""), f"{float(r['LAT']):.5f}, {float(r['LON']):.5f}"),
+        "categories": categories,
+        "subcategories": subcats_display,
+        "email": safe_get(r.get("EMAIL", "")),
+        "phone": safe_get(r.get("TELEFONO", "")),
+        "website":   safe_get(r.get("CONTENT_URL", "") or r.get("WEBSITE", "")),
+        "gmaps_url": safe_get(r.get("URL", "")),
+        "horario": safe_get(r.get("HORARIO", "")),
+        "precio": val_precio,
+        "estado_negocio": val_estado,
+        "reserva_posible": val_reserva,
+        "accesibilidad_silla_ruedas": val_acces,
+        # Nuevos campos
+        "rating": rating_out,                 # float o null
+        "total_reviews": reviews_out,         # int o null
+    })
 
-# Extraer subcategorías únicas
+# cat2subs = subtipos realmente presentes por categoría (+ "(sin subcategoría)" donde haga falta)
 cat2subs = {}
-for rec in records:
-    mc = rec["main_category"]
-    cat2subs.setdefault(mc, set())
-    cat2subs[mc].update(rec["subcategories"])
-# Convertir sets a listas ordenadas
-cat2subs = {k: sorted(v) for k, v in cat2subs.items()}
+for cat in grupos:
+    lst = sorted(present_types_by_cat.get(cat, set()), key=lambda s: s.casefold())
+    if cat in cat_needing_empty and "(sin subcategoría)" not in lst:
+        lst.append("(sin subcategoría)")
+    if cat == "OTROS" and "(sin subcategoría)" not in lst:
+        lst.append("(sin subcategoría)")
+    cat2subs[cat] = lst
 
-# 7) CREA EL MAPA BASE ---------------------------------------------
+print("Registros totales:", len(df))
+print("Con categorías por registro:", sum(1 for r in records if r["categories"]))
+print("Con subtipos válidos:",      sum(1 for r in records if r["subcategories"]))
+
+# ------------------------------------------------------------------
+# Mapa
 m = folium.Map(location=[40.4168, -3.7038], zoom_start=11, tiles="CartoDB positron")
 
-# 8) Inyectar datos y control de filtros + FAVORITOS ---------------
+def safe_json_dump_text(obj):
+    txt = json.dumps(obj, ensure_ascii=False)
+    return txt.replace("</script>", "<\\/script>")
 
-def safe_json_dumps(obj):
-    return json.dumps(obj, ensure_ascii=False).replace("</script>", "<\\/script>")
+def unique_values(field):
+    return sorted({str(r[field]) for r in records if r.get(field) is not None})
 
-data_json      = safe_json_dumps(records)
-cat2subs_json  = safe_json_dumps(cat2subs)
-emoji_json     = safe_json_dumps(CAT2EMOJI)
+unique_filters = {
+    "acc_silla": unique_values("accesibilidad_silla_ruedas"),
+    "precio":    unique_values("precio"),
+    "estado":    unique_values("estado_negocio"),
+    "reserva":   unique_values("reserva_posible"),
+}
 
+data_json           = safe_json_dump_text(records)
+cat2subs_json       = safe_json_dump_text(cat2subs)
+emoji_json          = safe_json_dump_text(CAT2EMOJI)
+unique_filters_json = safe_json_dump_text(unique_filters)
+
+# --- JS embebido ---
 js = """
 <style>
-/* --- PANEL DE FILTROS -------------------------------------------------- */
-#filter-panel { position:absolute; top:10px; right:10px; width:300px; max-height:85vh; font-family:sans-serif; z-index:1000; }
+#filter-panel { position:relative; width:300px; max-height:85vh; font-family:sans-serif; z-index:5000; }
 #filter-panel .panel { background:white; border-radius:8px; box-shadow:0 6px 20px rgba(0,0,0,0.25); padding:8px 12px 6px; display:flex; flex-direction:column; gap:6px; max-height:85vh; overflow:hidden; }
 #filter-header { display:flex; justify-content:space-between; align-items:center; }
 #filter-header .title-wrapper { display:flex; align-items:center; gap:6px; }
@@ -204,750 +310,643 @@ js = """
 .category-header { display:flex; align-items:center; cursor:pointer; gap:8px; user-select:none; padding:6px 8px; border-radius:6px; background:#fafafa; }
 .category-header:hover { background:#f2f2f9; }
 .category-header .title { flex:1; display:flex; align-items:center; gap:6px; }
-.subcat-list { margin-left:4px; margin-top:4px; display:none; flex-direction:column; gap:2px; max-height:300px; overflow:auto; padding-left:10px; }
+.subcat-list { margin-left:4px; margin-top:4px; display:none; flex-direction:column; gap:6px; max-height:300px; overflow:auto; padding-left:10px; }
 .toggle-arrow { width:16px; display:inline-block; transform:rotate(0deg); transition:transform .2s ease; font-weight:bold; }
 .category-header.expanded .toggle-arrow { transform:rotate(90deg); }
 .checkbox-wrapper { display:flex; align-items:center; gap:6px; padding:2px 0; }
 .small-checkbox { width:16px; height:16px; }
-/* --- ICONO CORAZÓN ----------------------------------------------------- */
 .fav-heart { cursor:pointer; font-size:18px; user-select:none; }
-/* --- ICONO DESCARGA ---------------------------------------------------- */
 .download-icon { cursor:pointer; font-size:18px; user-select:none; margin-left:auto; padding:2px 6px; border-radius:4px; transition:background .15s ease; }
 .download-icon:hover { background:#e0e0ea; }
-/* --- ESTILOS PARA RESEÑAS ---------------------------------------------- */
-button[id^="review-btn-"]:hover { background:#45a049 !important; }
-textarea[id^="review-input-"]:focus { outline:none; border-color:#4CAF50; }
-.review-like { transition: transform 0.1s ease; }
-.review-like:hover { transform: scale(1.2); }
-.review-edit { transition: transform 0.1s ease; }
-.review-edit:hover { transform: scale(1.2); }
-.review-delete { transition: transform 0.1s ease; }
-.review-delete:hover { transform: scale(1.2); }
-.save-edit:hover { background:#45a049 !important; }
-.cancel-edit:hover { background:#777 !important; }
+.leaflet-div-icon.emoji-pin{ background: transparent; border: none; font-size: 24px; line-height: 1; }
 </style>
 
-<div id=\"filter-panel\">\n  
-<div class=\"panel leaflet-bar\">\n   
-<div id=\"filter-header\">\n      
-<div class=\"title-wrapper\"><h3>Filtros</h3></div>\n      
-<div id=\"panel-toggle\">&#9660;</div>\n    
-</div>\n    
-<div id=\"filter-body\">\n      
-<div class=\"buttons\">\n        
-<button id=\"show-all\">Mostrar todo</button>\n        
-<button id=\"hide-all\">Ocultar todo</button>\n      
-</div>\n      
-<div id=\"categories-container\" style=\"overflow:auto; flex:1; margin-top:4px; padding-right:4px;\"></div>\n    
-</div>\n  
-</div>\n</div>
+<script id="data-json" type="application/json">""" + data_json + """</script>
+<script id="cat2subs-json" type="application/json">""" + cat2subs_json + """</script>
+<script id="emoji-json" type="application/json">""" + emoji_json + """</script>
+<script id="filters-json" type="application/json">""" + unique_filters_json + """</script>
 
 <script>
-/****************** AUXILIARES MAPA *************************/
 function getFoliumMap() {
   if (window._folium_map) return window._folium_map;
-  for (const k in window) {
-    try { if (window[k] instanceof L.Map) { window._folium_map = window[k]; return window[k]; } } catch {}
+  for (const k in window) { try { if (window[k] instanceof L.Map) { window._folium_map = window[k]; return window[k]; } } catch {}
   }
   return null;
 }
 function withMap(cb, tries=0) {
   const m = getFoliumMap();
-  if (m) cb(m); else if (tries < 15) setTimeout(()=>withMap(cb, tries+1),100);
+  if (m) cb(m); else if (tries < 60) setTimeout(()=>withMap(cb, tries+1), 100);
 }
-/****************** DATOS DESDE PYTHON **********************/
-const rawData   = """ + data_json + """;
-const cat2subs  = """ + cat2subs_json + """;
-const cat2emoji = """ + emoji_json + """;
+
+const rawData   = JSON.parse(document.getElementById('data-json').textContent   || "[]");
+const cat2subs  = JSON.parse(document.getElementById('cat2subs-json').textContent || "{}");
+const cat2emoji = JSON.parse(document.getElementById('emoji-json').textContent  || "{}");
+const filtersUnique = JSON.parse(document.getElementById('filters-json').textContent || "{}");
+
 const FAVORITES_KEY = "favorites_mapa";
-const REVIEWS_KEY = "reviews_mapa";
-
-/****************** ESTADO FAVORITOS ***********************/
 let favorites = new Set(JSON.parse(localStorage.getItem(FAVORITES_KEY) || "[]"));
-function saveFavorites() { localStorage.setItem(FAVORITES_KEY, JSON.stringify(Array.from(favorites))); }
+function saveFavorites(){ localStorage.setItem(FAVORITES_KEY, JSON.stringify([...favorites])); }
 
-/****************** ESTADO RESEÑAS ************************/
-let reviews = JSON.parse(localStorage.getItem(REVIEWS_KEY) || "{}");
-function saveReviews() { localStorage.setItem(REVIEWS_KEY, JSON.stringify(reviews)); }
+let favoritesLayer = L.layerGroup();
+const allMarkers = [];
+const scheduleCache = new Map();
 
-function addReview(recId, review) {
-    if (!reviews[recId]) reviews[recId] = [];
-    reviews[recId].push({
-        id: Date.now(), // ID único para cada reseña
-        text: review,
-        date: new Date().toLocaleString('es-ES'),
-        likes: 0,
-        liked: false
-    });
-    saveReviews();
+/* --- helpers de horario --- */
+const DAY_INDEX = { "monday":0,"tuesday":1,"wednesday":2,"thursday":3,"friday":4,"saturday":5,"sunday":6,
+  "lunes":0,"martes":1,"miércoles":2,"miercoles":2,"jueves":3,"viernes":4,"sábado":5,"sabado":5,"domingo":6 };
+function normalizeSpaces(s){ return (s||"").replace(/[\\u2000-\\u200A\\u202F\\u205F\\u00A0]/g," ").trim(); }
+function parseTimeToken(tok){ tok = normalizeSpaces(tok).replace(/\\./g,"").toUpperCase();
+  const m = tok.match(/^\\s*(\\d{1,2})(?::(\\d{2}))?\\s*(AM|PM)?\\s*$/i);
+  if(!m) return {hh:null, mm:null, mer:null, valid:false};
+  let hh = parseInt(m[1],10), mm = m[2]?parseInt(m[2],10):0, mer = m[3]?m[3].toUpperCase():null;
+  if(hh>24 || mm>59) return {hh:null, mm:null, mer:null, valid:false};
+  return {hh, mm, mer, valid:true};
 }
-
-function deleteReview(recId, reviewId) {
-    if (reviews[recId]) {
-        reviews[recId] = reviews[recId].filter(r => r.id !== reviewId);
-        if (reviews[recId].length === 0) delete reviews[recId];
-        saveReviews();
+function toMinutes(hh,mm,mer){ if(mer==="AM"){ if(hh===12) hh=0; } else if(mer==="PM"){ if(hh!==12) hh+=12; } return hh*60+mm; }
+function parseSchedule(horario){
+  const sched = {0:[],1:[],2:[],3:[],4:[],5:[],6:[]};
+  if(!horario) return sched;
+  const normalized = normalizeSpaces(horario).replace(/[—–−]/g,"-");
+  const parts = normalized.split("|");
+  for(const seg0 of parts){
+    const seg = seg0.trim();
+    const idxColon = seg.indexOf(":"); if(idxColon===-1) continue;
+    const dayRaw = seg.slice(0, idxColon).trim().toLowerCase();
+    const dayIdx = DAY_INDEX[dayRaw]; if(dayIdx===undefined) continue;
+    let rest = seg.slice(idxColon+1).trim();
+    if(/\\b(closed|cerrado)\\b/i.test(rest)){ sched[dayIdx]=[]; continue; }
+    if(/(open\\s*24\\s*hours|abierto\\s*24\\s*horas|\\b24\\s*h\\b|\\b24\\s*horas\\b)/i.test(rest)){ sched[dayIdx]=[[0,1440]]; continue; }
+    const intervals = rest.split(",").map(s=>s.trim()).filter(Boolean);
+    for(const it of intervals){
+      const m = it.split(/\\s*-\\s*/); if(m.length!==2) continue;
+      const [a,b] = m; const t1=parseTimeToken(a), t2=parseTimeToken(b);
+      if(!t1.valid || !t2.valid) continue;
+      if(t1.mer==null && t2.mer!=null) t1.mer=t2.mer; if(t2.mer==null && t1.mer!=null) t2.mer=t1.mer;
+      const m1=toMinutes(t1.hh,t1.mm,t1.mer), m2=toMinutes(t2.hh,t2.mm,t2.mer);
+      if(Number.isNaN(m1)||Number.isNaN(m2)||m1===m2) continue;
+      if(m1<m2) sched[dayIdx].push([m1,m2]); else { sched[dayIdx].push([m1,1440]); sched[(dayIdx+1)%7].push([0,m2]); }
     }
+  }
+  for(const d of Object.keys(sched)){
+    const arr = sched[d].sort((x,y)=>x[0]-y[0]);
+    const merged=[]; for(const [s,e] of arr){ if(!merged.length||s>merged[merged.length-1][1]) merged.push([s,e]); else merged[merged.length-1][1]=Math.max(merged[merged.length-1][1],e); }
+    sched[d]=merged;
+  }
+  return sched;
 }
+function isOpenAtSchedule(sched, dow, minute){ return (sched[dow]||[]).some(([s,e])=>minute>=s && minute<e); }
 
-function editReview(recId, reviewId, newText) {
-    if (reviews[recId]) {
-        const review = reviews[recId].find(r => r.id === reviewId);
-        if (review) {
-            review.text = newText;
-            review.date = new Date().toLocaleString('es-ES') + ' (editado)';
-            saveReviews();
-        }
+/* --- util: sets --- */
+function setHasAny(setA, arr){ for(const x of arr){ if(setA.has(x)) return true; } return false; }
+
+/* --- Emoji dinámico --- */
+function getEmojiForRec(catToSubs){
+  const mains = Object.keys(catToSubs);
+  for (const main of mains){
+    const subs = catToSubs[main];
+    for (const sub of subs){
+      const chk = document.querySelector(`input[data-main='${main}'][data-sub='${sub}']`);
+      if (chk && chk.checked){ return cat2emoji[main] || "📍"; }
     }
+  }
+  const fallback = mains[0];
+  return cat2emoji[fallback] || "📍";
 }
-
-function toggleLike(recId, reviewId) {
-    if (reviews[recId]) {
-        const review = reviews[recId].find(r => r.id === reviewId);
-        if (review) {
-            if (review.liked) {
-                review.likes--;
-                review.liked = false;
-            } else {
-                review.likes++;
-                review.liked = true;
-            }
-            saveReviews();
-        }
-    }
-}
-
-/****************** CAPAS LEAFLET **************************/
-const layerByCatSub = {};    // capas normales por categoría/subcategoría
-let   favoritesLayer;        // capa exclusiva de favoritos
 
 withMap((map)=>{
-
-  /*********** CREAR CAPA FAVORITOS ************************/ 
-  favoritesLayer = L.layerGroup().addTo(map);
-
-  /*********** CREAR MARCADORES ****************************/
-  for (const rec of rawData) {
-      const main = rec.main_category || "(sin categoría)";
-      const subs = rec.subcategories.length ? rec.subcategories : ["(sin subcategoría)"];
-      const emoji = cat2emoji[main] || "📍";
-      const isFav = favorites.has(rec.id);
-      const favSymbol = isFav ? "♥" : "♡";
-
-      // --- popup ---
-      const urlHTML = rec.url ? `<a href="${rec.url}" target="_blank" rel="noopener noreferrer">${rec.url}</a>` : '—';
-      
-      // Obtener reseñas existentes
-      const placeReviews = reviews[rec.id] || [];
-      let reviewsHTML = '';
-      if (placeReviews.length > 0) {
-          reviewsHTML = placeReviews.map(r => `
-              <div class="review-item" data-review-id="${r.id}" style="background:#f5f5f5; padding:8px; margin:4px 0; border-radius:4px; border-left:3px solid #4CAF50; position:relative;">
-                  <div style="position:absolute; top:8px; right:8px; display:flex; gap:8px;">
-                      <span class="review-like" data-rec-id="${rec.id}" data-review-id="${r.id}" 
-                            style="cursor:pointer; font-size:16px; user-select:none;" 
-                            title="Me gusta">
-                          ${r.liked ? '👍' : '👍'}<span style="font-size:12px; color:#666; margin-left:2px;">${r.likes || 0}</span>
-                      </span>
-                      <span class="review-edit" data-rec-id="${rec.id}" data-review-id="${r.id}" 
-                            style="cursor:pointer; font-size:16px; user-select:none;" 
-                            title="Editar">✏️</span>
-                      <span class="review-delete" data-rec-id="${rec.id}" data-review-id="${r.id}" 
-                            style="cursor:pointer; font-size:16px; user-select:none;" 
-                            title="Eliminar">🗑️</span>
-                  </div>
-                  <div style="font-size:12px; color:#666; margin-bottom:4px; padding-right:100px;">${r.date}</div>
-                  <div class="review-text" style="font-size:13px; line-height:1.4; padding-right:100px;">${r.text}</div>
-                  <div class="review-edit-area" style="display:none; margin-top:8px;">
-                      <textarea class="edit-textarea" style="width:100%; min-height:50px; padding:6px; border:1px solid #4CAF50; border-radius:4px; font-size:13px; box-sizing:border-box;">${r.text}</textarea>
-                      <div style="margin-top:6px; display:flex; gap:6px;">
-                          <button class="save-edit" style="padding:4px 12px; background:#4CAF50; color:white; border:none; border-radius:4px; cursor:pointer; font-size:12px;">Guardar</button>
-                          <button class="cancel-edit" style="padding:4px 12px; background:#999; color:white; border:none; border-radius:4px; cursor:pointer; font-size:12px;">Cancelar</button>
-                      </div>
-                  </div>
-              </div>
-          `).join('');
-      } else {
-          reviewsHTML = '<div style="color:#999; font-style:italic; font-size:13px">No hay reseñas todavía</div>';
-      }
-      
-      const popupContent = `
-        <div style="font-size:14px; max-width:850px; max-height:700px; overflow:auto">
-          <b>${rec.name}</b>&nbsp;&nbsp;<span class="fav-heart" data-id="${rec.id}">${favSymbol}</span><br>
-          <small>${rec.address}</small><br><br>
-          ${rec.description}<br><br>
-          <strong>Email:</strong> ${rec.email || '—'}<br>
-          <strong>URL:</strong> ${urlHTML}<br>
-          <strong>Teléfono:</strong> ${rec.phone || '—'}<br>
-          <strong>Horario:</strong> ${rec.horario || '—'}<br><br>
-          <strong>Reseñas:</strong>
-          <div style="margin-top:8px; max-height:250px; overflow-y:auto" id="reviews-container-${rec.id}">
-              ${reviewsHTML}
+  // Panel de filtros
+  const FilterControl = L.Control.extend({
+    onAdd: function(){
+      const container = L.DomUtil.create('div'); container.id='filter-panel'; container.className='leaflet-bar';
+      container.innerHTML = `
+        <div class="panel">
+          <div id="filter-header">
+            <div class="title-wrapper"><h3>Filtros</h3></div>
+            <div id="panel-toggle">&#9660;</div>
           </div>
-          <div style="margin-top:10px; border-top:1px solid #ddd; padding-top:10px">
-              <textarea id="review-input-${rec.id}" 
-                       placeholder="Escribe tu reseña aquí..." 
-                       style="width:100%; min-height:60px; padding:8px; border:1px solid #ccc; 
-                              border-radius:4px; resize:vertical; font-family:sans-serif; 
-                              font-size:13px; box-sizing:border-box"></textarea>
-              <button id="review-btn-${rec.id}" 
-                      style="margin-top:6px; padding:6px 16px; background:#4CAF50; color:white; 
-                             border:none; border-radius:4px; cursor:pointer; font-size:13px">
-                  Añadir reseña
-              </button>
+          <div id="filter-body">
+            <div class="buttons">
+              <button id="show-all">Mostrar todo</button>
+              <button id="hide-all">Ocultar todo</button>
+            </div>
+            <div id="categories-container" style="overflow:auto; flex:1; margin-top:4px; padding-right:4px;"></div>
           </div>
         </div>`;
-
-      // --- icono ---
-      const icon = L.divIcon({ html:`<div style="font-size:22px; line-height:1">${emoji}</div>`, className:"" });
-      const marker = L.marker([rec.lat, rec.lon], { icon }).bindPopup(popupContent, {maxWidth:900,maxHeight:800});
-
-      // --- almacenar referencia a marker para favoritos ----
-      marker._recId = rec.id;
-
-      // --- añadir a estructuras por categoría --------------
-      for (const sub of subs) {
-          layerByCatSub[main] ??= {};
-          layerByCatSub[main][sub] ??= L.layerGroup();
-          layerByCatSub[main][sub].addLayer(marker);
-      }
-
-      // --- si es favorito actual, añadir a favoritesLayer ---
-      if (isFav) favoritesLayer.addLayer(marker);
-  }
-
-  // Añadir todas las capas normales por defecto
-  for (const main in layerByCatSub) {
-      for (const sub in layerByCatSub[main]) {
-          layerByCatSub[main][sub].addTo(map);
-      }
-  }
-
-  /****************** POPUP HEART INTERACTIVO ********************/
-  map.on('popupopen', (e)=>{
-      const pop = e.popup?.getElement();
-      if (!pop) return;
-      
-      // --- Manejo del corazón de favoritos ---
-      const heart = pop.querySelector('.fav-heart');
-      if (heart) {
-          const recId = parseInt(heart.getAttribute('data-id'));
-          heart.addEventListener('click', ()=>{
-              const isFav = favorites.has(recId);
-              if (isFav) {
-                  favorites.delete(recId);
-                  heart.textContent = "♡";
-                  // quitar del layer de favoritos
-                  favoritesLayer.eachLayer(l=>{ if (l._recId===recId) favoritesLayer.removeLayer(l); });
-              } else {
-                  favorites.add(recId);
-                  heart.textContent = "♥";
-                  // buscar el marker y añadirlo al layer de favoritos
-                  for (const main in layerByCatSub) {
-                      for (const sub in layerByCatSub[main]) {
-                          layerByCatSub[main][sub].eachLayer(l=>{ if (l._recId===recId) favoritesLayer.addLayer(l); });
-                      }
-                  }
-              }
-              saveFavorites();
-              updateFavoritesUI();
-              applyFilters();
-          }, { once:false });
-      }
-      
-      // --- Manejo de reseñas ---
-      const reviewBtn = pop.querySelector(`[id^="review-btn-"]`);
-      if (reviewBtn) {
-          const recId = parseInt(reviewBtn.id.split('-')[2]);
-          const reviewInput = pop.querySelector(`#review-input-${recId}`);
-          const reviewsContainer = pop.querySelector(`#reviews-container-${recId}`);
-          
-          reviewBtn.addEventListener('click', ()=>{
-              const reviewText = reviewInput.value.trim();
-              if (reviewText) {
-                  // Añadir la reseña
-                  const reviewId = Date.now();
-                  if (!reviews[recId]) reviews[recId] = [];
-                  const newReview = {
-                      id: reviewId,
-                      text: reviewText,
-                      date: new Date().toLocaleString('es-ES'),
-                      likes: 0,
-                      liked: false
-                  };
-                  reviews[recId].push(newReview);
-                  saveReviews();
-                  
-                  // Si es la primera reseña, quitar el mensaje de "no hay reseñas"
-                  if (reviews[recId].length === 1) {
-                      reviewsContainer.innerHTML = '';
-                  }
-                  
-                  // Añadir la nueva reseña al contenedor
-                  const reviewDiv = document.createElement('div');
-                  reviewDiv.className = 'review-item';
-                  reviewDiv.setAttribute('data-review-id', reviewId);
-                  reviewDiv.style.cssText = 'background:#f5f5f5; padding:8px; margin:4px 0; border-radius:4px; border-left:3px solid #4CAF50; position:relative;';
-                  reviewDiv.innerHTML = `
-                      <div style="position:absolute; top:8px; right:8px; display:flex; gap:8px;">
-                          <span class="review-like" data-rec-id="${recId}" data-review-id="${reviewId}" 
-                                style="cursor:pointer; font-size:16px; user-select:none;" 
-                                title="Me gusta">
-                              👍<span style="font-size:12px; color:#666; margin-left:2px;">0</span>
-                          </span>
-                          <span class="review-edit" data-rec-id="${recId}" data-review-id="${reviewId}" 
-                                style="cursor:pointer; font-size:16px; user-select:none;" 
-                                title="Editar">✏️</span>
-                          <span class="review-delete" data-rec-id="${recId}" data-review-id="${reviewId}" 
-                                style="cursor:pointer; font-size:16px; user-select:none;" 
-                                title="Eliminar">🗑️</span>
-                      </div>
-                      <div style="font-size:12px; color:#666; margin-bottom:4px; padding-right:100px;">${newReview.date}</div>
-                      <div class="review-text" style="font-size:13px; line-height:1.4; padding-right:100px;">${newReview.text}</div>
-                      <div class="review-edit-area" style="display:none; margin-top:8px;">
-                          <textarea class="edit-textarea" style="width:100%; min-height:50px; padding:6px; border:1px solid #4CAF50; border-radius:4px; font-size:13px; box-sizing:border-box;">${newReview.text}</textarea>
-                          <div style="margin-top:6px; display:flex; gap:6px;">
-                              <button class="save-edit" style="padding:4px 12px; background:#4CAF50; color:white; border:none; border-radius:4px; cursor:pointer; font-size:12px;">Guardar</button>
-                              <button class="cancel-edit" style="padding:4px 12px; background:#999; color:white; border:none; border-radius:4px; cursor:pointer; font-size:12px;">Cancelar</button>
-                          </div>
-                      </div>
-                  `;
-                  reviewsContainer.appendChild(reviewDiv);
-                  
-                  // Limpiar el campo de texto
-                  reviewInput.value = '';
-                  
-                  // Hacer scroll al final de las reseñas
-                  reviewsContainer.scrollTop = reviewsContainer.scrollHeight;
-                  
-                  // Añadir event listeners a los nuevos botones
-                  attachReviewEventListeners(reviewDiv, recId, reviewId);
-              } else {
-                  alert('Por favor, escribe una reseña antes de enviar.');
-              }
-          }, { once:false });
-      }
-      
-      // --- Manejo de botones de reseñas existentes ---
-      pop.querySelectorAll('.review-item').forEach(reviewItem => {
-          const reviewId = parseInt(reviewItem.getAttribute('data-review-id'));
-          const recId = parseInt(reviewItem.querySelector('.review-delete').getAttribute('data-rec-id'));
-          attachReviewEventListeners(reviewItem, recId, reviewId);
-      });
+      L.DomEvent.disableClickPropagation(container);
+      L.DomEvent.disableScrollPropagation(container);
+      return container;
+    },
+    options: { position:'topright' }
   });
-  
-  // Función auxiliar para adjuntar event listeners a los botones de reseña
-  function attachReviewEventListeners(reviewDiv, recId, reviewId) {
-      // Like
-      const likeBtn = reviewDiv.querySelector('.review-like');
-      if (likeBtn) {
-          likeBtn.addEventListener('click', ()=>{
-              toggleLike(recId, reviewId);
-              const review = reviews[recId]?.find(r => r.id === reviewId);
-              if (review) {
-                  likeBtn.innerHTML = `👍<span style="font-size:12px; color:#666; margin-left:2px;">${review.likes}</span>`;
-                  likeBtn.style.opacity = review.liked ? '1' : '0.6';
-              }
-          });
-      }
-      
-      // Delete
-      const deleteBtn = reviewDiv.querySelector('.review-delete');
-      if (deleteBtn) {
-          deleteBtn.addEventListener('click', ()=>{
-              if (confirm('¿Estás seguro de que quieres eliminar esta reseña?')) {
-                  deleteReview(recId, reviewId);
-                  reviewDiv.remove();
-                  // Si no quedan reseñas, mostrar mensaje
-                  const container = document.querySelector(`#reviews-container-${recId}`);
-                  if (container && container.children.length === 0) {
-                      container.innerHTML = '<div style="color:#999; font-style:italic; font-size:13px">No hay reseñas todavía</div>';
-                  }
-              }
-          });
-      }
-      
-      // Edit
-      const editBtn = reviewDiv.querySelector('.review-edit');
-      const textDiv = reviewDiv.querySelector('.review-text');
-      const editArea = reviewDiv.querySelector('.review-edit-area');
-      const editTextarea = reviewDiv.querySelector('.edit-textarea');
-      const saveBtn = reviewDiv.querySelector('.save-edit');
-      const cancelBtn = reviewDiv.querySelector('.cancel-edit');
-      
-      if (editBtn && textDiv && editArea && editTextarea) {
-          editBtn.addEventListener('click', ()=>{
-              textDiv.style.display = 'none';
-              editArea.style.display = 'block';
-              editTextarea.focus();
-          });
-          
-          if (cancelBtn) {
-              cancelBtn.addEventListener('click', ()=>{
-                  textDiv.style.display = 'block';
-                  editArea.style.display = 'none';
-                  const review = reviews[recId]?.find(r => r.id === reviewId);
-                  if (review) editTextarea.value = review.text;
-              });
-          }
-          
-          if (saveBtn) {
-              saveBtn.addEventListener('click', ()=>{
-                  const newText = editTextarea.value.trim();
-                  if (newText) {
-                      editReview(recId, reviewId, newText);
-                      textDiv.textContent = newText;
-                      textDiv.style.display = 'block';
-                      editArea.style.display = 'none';
-                      // Actualizar fecha con indicador de edición
-                      const dateDiv = reviewDiv.querySelector('div[style*="color:#666"]');
-                      if (dateDiv) {
-                          dateDiv.textContent = new Date().toLocaleString('es-ES') + ' (editado)';
-                      }
-                  } else {
-                      alert('La reseña no puede estar vacía.');
-                  }
-              });
-          }
-      }
-  }
+  map.addControl(new FilterControl());
 
-  /*********** EXPORTAR FAVORITOS A CSV ***********/
-  function exportFavorites() {
-    if (favorites.size === 0) {
-      alert("No has marcado favoritos todavía.");
-      return;
+  for (const rec of rawData) {
+    const mains = (rec.categories && rec.categories.length) ? rec.categories : ["OTROS"];
+    const allSubs = (rec.subcategories && rec.subcategories.length) ? rec.subcategories : [];
+
+    const catToSubs = {};
+    for (const main of mains){
+      const validSubsForMain = (cat2subs[main]||[]);
+      let subsForMain = allSubs.filter(s => validSubsForMain.includes(s));
+      if (subsForMain.length === 0){
+        if (validSubsForMain.includes("(sin subcategoría)")) subsForMain = ["(sin subcategoría)"];
+      }
+      if (subsForMain.length === 0 && main==="OTROS"){ subsForMain = ["(sin subcategoría)"]; }
+      if (subsForMain.length > 0) catToSubs[main] = subsForMain;
     }
-    // Cabeceras que quieres en el CSV — ajusta a tus necesidades
-    const headers = [
-      "id","name","address","lat","lon","main_category",
-      "subcategories","email","phone","url","horario","description","reseñas"
-    ];
 
-    // Construir filas con los registros que estén en favorites
-    const rows = rawData
-      .filter(r => favorites.has(r.id))
-      .map(r => {
-        // Obtener las reseñas para este lugar
-        const placeReviews = reviews[r.id] || [];
-        const reviewsText = placeReviews.map(rev => 
-          `${rev.date}: ${rev.text} (${rev.likes} likes)`
-        ).join(" | ");
-        
-        return headers.map(h => {
-          let val;
-          if (h === "subcategories") {
-            val = (r[h] || []).join("|");
-          } else if (h === "reseñas") {
-            val = reviewsText;
-          } else {
-            val = r[h];
-          }
-          // escapado CSV muy simple: comillas dobles y separar con ;
-          return `"${String(val || "").replace(/\"/g,'\"\"')}"`;
-        }).join(";");
-      });
+    let emoji = getEmojiForRec(catToSubs);
 
-    // Ensamblar CSV
-    const csv = [headers.join(";"), ...rows].join("\\r\\n");
+    const isFav = favorites.has(rec.id);
+    const favSymbol = isFav ? "♥" : "♡";
 
-    // Crear blob + disparar descarga
-    const blob = new Blob([csv], {type: "text/csv;charset=utf-8"});
-    const url  = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "favoritos.csv";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    const websiteHTML = rec.website ? `<a href="${rec.website}" target="_blank" rel="noopener noreferrer">Abrir sitio</a>` : '—';
+    const gmapsHTML   = rec.gmaps_url ? `<a href="${rec.gmaps_url}" target="_blank" rel="noopener noreferrer">Ver en Google Maps</a>` : '—';
+
+    const catsHTML = mains.join(", ");
+    const subsHTML = allSubs.length ? allSubs.join(", ") : "(sin subcategoría)";
+
+    const ratingDisp = (rec.rating !== null && rec.rating !== undefined && !Number.isNaN(rec.rating)) ? rec.rating : '—';
+    const reviewsDisp = (rec.total_reviews !== null && rec.total_reviews !== undefined && !Number.isNaN(rec.total_reviews)) ? rec.total_reviews : '—';
+
+    const popupContent = `
+      <div style="font-size:14px; max-width:850px; max-height:700px; overflow:auto">
+        <b>${rec.name}</b>&nbsp;&nbsp;<span class="fav-heart" data-id="${rec.id}">${favSymbol}</span><br>
+        <small>${rec.address}</small><br><br>
+        ${rec.description || ""}<br><br>
+        <strong>Categorías:</strong> ${catsHTML}<br>
+        <strong>Tipos:</strong> ${subsHTML}<br>
+        <strong>Sitio web:</strong> ${websiteHTML}<br>
+        <strong>Google Maps:</strong> ${gmapsHTML}<br>
+        <strong>Teléfono:</strong> ${rec.phone || '—'}<br>
+        <strong>Precio:</strong> ${rec.precio}<br>
+        <strong>Valorado:</strong> ${ratingDisp}<br>
+        <strong>Número de reseñas:</strong> ${reviewsDisp}<br>
+        <strong>Estado de negocio:</strong> ${rec.estado_negocio}<br>
+        <strong>Reserva posible:</strong> ${rec.reserva_posible}<br>
+        <strong>Accesibilidad Silla de ruedas:</strong> ${rec.accesibilidad_silla_ruedas}<br>
+        <strong>Horario:</strong> ${rec.horario || '—'}<br>
+      </div>`;
+
+    const icon = L.divIcon({ className: "leaflet-div-icon emoji-pin", html: emoji, iconSize: [24,24], iconAnchor: [12,12] });
+    const marker = L.marker([rec.lat, rec.lon], { icon }).bindPopup(popupContent, {maxWidth:900,maxHeight:800});
+
+    marker._recId = rec.id;
+    marker._rec   = rec;
+    marker._catToSubs = catToSubs;
+    marker._mainOrder = Object.keys(catToSubs);
+    marker._currentEmoji = emoji;
+    marker._updateEmoji = function(){
+      const e = getEmojiForRec(marker._catToSubs);
+      if (e !== marker._currentEmoji){
+        marker._currentEmoji = e;
+        marker.setIcon(L.divIcon({ className: "leaflet-div-icon emoji-pin", html: e, iconSize: [24,24], iconAnchor: [12,12] }));
+      }
+    };
+
+    marker.addTo(map);
+    allMarkers.push(marker);
+
+    if (isFav) favoritesLayer.addLayer(marker);
   }
 
-  /****************** PANEL DE FILTROS ***************************/
+  favoritesLayer.addTo(map);
+
+  map.on('popupopen', (e)=>{
+    const pop = e.popup && e.popup.getElement(); if(!pop) return;
+    const heart = pop.querySelector('.fav-heart');
+    if (heart){
+      const recId = parseInt(heart.getAttribute('data-id'));
+      heart.addEventListener('click', ()=>{
+        const isFav = favorites.has(recId);
+        if (isFav){
+          favorites.delete(recId); heart.textContent = "♡";
+          favoritesLayer.eachLayer(l=>{ if(l._recId===recId) favoritesLayer.removeLayer(l); });
+        } else {
+          favorites.add(recId); heart.textContent = "♥";
+          for (const mk of allMarkers){ if(mk._recId===recId) favoritesLayer.addLayer(mk); }
+        }
+        saveFavorites(); applyFilters();
+      });
+    }
+  });
+
+  function exportFavorites(){
+    if(favorites.size===0) return alert("No has marcado favoritos todavía.");
+    const headers = ["id","name","address","lat","lon","categories","subcategories","email","phone","website","gmaps_url","horario","description","rating","total_reviews"];
+    const rows = [];
+    for (const id of favorites) {
+      const r = rawData.find(x=>x.id===id); if(!r) continue;
+      const row = headers.map(h=> {
+        let val = r[h];
+        if(h==="categories") val=(r.categories||[]).join("|");
+        if(h==="subcategories") val=(r.subcategories||[]).join("|");
+        return `"` + String(val ?? "").replace(/"/g,'""') + `"`; }).join(";");
+      rows.push(row);
+    }
+    const csv = [headers.join(";"), ...rows].join("\\r\\n");
+    const blob = new Blob([csv], {type:"text/csv;charset=utf-8"});
+    const url = URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download="favoritos.csv";
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  }
+
   const container = document.getElementById("categories-container");
 
-  /* --- FAVORITOS BLOQUE ------------------------------------- */
-  const favBlock = document.createElement("div");
-  favBlock.className = "category-block";
-  const favHeader = document.createElement("div");
-  favHeader.className = "category-header";
-  const favTitleW = document.createElement("div");
-  favTitleW.className = "title";
-  const favChk = document.createElement("input");
-  favChk.type = "checkbox";
-  favChk.className = "small-checkbox";
-  favChk.checked = true;
-  favChk.id = "fav-main-chk";
-  const favEmoji = document.createElement("span");
-  favEmoji.textContent = "❤";
-  const favName = document.createElement("span");
-  favName.textContent = "FAVORITOS";
-  
-  // Añadir icono de descarga
-  const downloadIcon = document.createElement("span");
-  downloadIcon.className = "download-icon";
-  downloadIcon.textContent = "📥";
-  downloadIcon.title = "Descargar favoritos como CSV";
-  
-  favTitleW.appendChild(favChk); 
-  favTitleW.appendChild(favEmoji); 
-  favTitleW.appendChild(favName);
-  favTitleW.appendChild(downloadIcon); // Añadir el icono aquí
-  favHeader.appendChild(favTitleW);
-  favBlock.appendChild(favHeader);
-  container.appendChild(favBlock);
+  // FAVORITOS
+  const favBlock = document.createElement("div"); favBlock.className="category-block";
+  const favHeader = document.createElement("div"); favHeader.className="category-header";
+  const favTitleW = document.createElement("div"); favTitleW.className="title";
+  const favChk = document.createElement("input"); favChk.type="checkbox"; favChk.className="small-checkbox"; favChk.checked=true; favChk.id="fav-main-chk";
+  const favEmoji = document.createElement("span"); favEmoji.textContent="❤";
+  const favName = document.createElement("span"); favName.textContent="FAVORITOS";
+  const downloadIcon = document.createElement("span"); downloadIcon.className="download-icon"; downloadIcon.textContent="📥"; downloadIcon.title="Descargar favoritos como CSV";
+  favTitleW.appendChild(favChk); favTitleW.appendChild(favEmoji); favTitleW.appendChild(favName); favTitleW.appendChild(downloadIcon);
+  favHeader.appendChild(favTitleW); favBlock.appendChild(favHeader); container.appendChild(favBlock);
+  favChk.addEventListener('change', ()=>{ if(favChk.checked){ if(!map.hasLayer(favoritesLayer)) favoritesLayer.addTo(map); } else { if(map.hasLayer(favoritesLayer)) map.removeLayer(favoritesLayer); } });
+  downloadIcon.addEventListener('click', (e)=>{ e.stopPropagation(); exportFavorites(); });
 
-  favChk.addEventListener('change', applyFilters);
-  
-  // Evento click para el icono de descarga
-  downloadIcon.addEventListener('click', (e) => {
-    e.stopPropagation(); // Evitar que se propague al header
-    exportFavorites();
-  });
-
-  function updateFavoritesUI() {
-      // ahora mismo solo necesitamos actualizar el checkbox indeterminate si no hay favoritos
-      if (favorites.size===0) {
-          favChk.indeterminate = false;
-          favChk.checked = false;
-      }
-  }
-  updateFavoritesUI();
-
-  /* --- BLOQUE DE CATEGORÍAS (contenedor principal) ------------ */
-  const catMainBlock = document.createElement("div");
-  catMainBlock.className = "category-block";
-  
-  const catMainHeader = document.createElement("div");
-  catMainHeader.className = "category-header";
-  
-  const catMainTitleW = document.createElement("div");
-  catMainTitleW.className = "title";
-  
-  const catMainChk = document.createElement("input");
-  catMainChk.type = "checkbox";
-  catMainChk.className = "small-checkbox";
-  catMainChk.checked = true;
-  catMainChk.id = "cat-main-chk";
-  
-  const catMainEmoji = document.createElement("span");
-  catMainEmoji.textContent = "📁";
-  
-  const catMainName = document.createElement("span");
-  catMainName.textContent = "CATEGORÍAS";
-  
-  catMainTitleW.appendChild(catMainChk);
-  catMainTitleW.appendChild(catMainEmoji);
-  catMainTitleW.appendChild(catMainName);
-  
-  const catMainArrow = document.createElement("div");
-  catMainArrow.className = "toggle-arrow";
-  catMainArrow.innerHTML = "&#9654;"; // ►
-  
-  catMainHeader.appendChild(catMainTitleW);
-  catMainHeader.appendChild(catMainArrow);
+  // CATEGORÍAS
+  const catMainBlock = document.createElement("div"); catMainBlock.className="category-block";
+  const catMainHeader = document.createElement("div"); catMainHeader.className="category-header";
+  const catMainTitleW = document.createElement("div"); catMainTitleW.className="title";
+  const catMainChk = document.createElement("input"); catMainChk.type="checkbox"; catMainChk.className="small-checkbox"; catMainChk.checked=true; catMainChk.id="cat-main-chk";
+  const catMainEmoji = document.createElement("span"); catMainEmoji.textContent="📁";
+  const catMainName = document.createElement("span"); catMainName.textContent="CATEGORÍAS";
+  catMainTitleW.appendChild(catMainChk); catMainTitleW.appendChild(catMainEmoji); catMainTitleW.appendChild(catMainName);
+  const catMainArrow = document.createElement("div"); catMainArrow.className="toggle-arrow"; catMainArrow.innerHTML="&#9654;";
+  catMainHeader.appendChild(catMainTitleW); catMainHeader.appendChild(catMainArrow);
   catMainBlock.appendChild(catMainHeader);
-  
-  // Contenedor para todas las categorías
-  const categoriesWrapper = document.createElement("div");
-  categoriesWrapper.className = "subcat-list";
-  categoriesWrapper.style.paddingLeft = "20px";
-  
-  /* --- BLOQUES NORMALES (ahora dentro de categoriesWrapper) --- */
-  for (const main of Object.keys(cat2subs)) {
-      const block = document.createElement("div");
-      block.style.marginTop = "8px";
+  const categoriesWrapper = document.createElement("div"); categoriesWrapper.className="subcat-list"; categoriesWrapper.style.paddingLeft="20px";
 
-      const header = document.createElement("div");
-      header.className = "category-header";
-      header.style.padding = "4px 6px";
-      const titleWrapper = document.createElement("div");
-      titleWrapper.className = "title";
+  for(const main of Object.keys(cat2subs)) {
+    const block = document.createElement("div"); block.style.marginTop="8px";
+    const header = document.createElement("div"); header.className="category-header"; header.style.padding="4px 6px";
+    const titleWrapper = document.createElement("div"); titleWrapper.className="title";
+    const chkCat = document.createElement("input"); chkCat.type="checkbox"; chkCat.className="small-checkbox"; chkCat.setAttribute("data-main", main); chkCat.checked=true;
+    const emojiSpan = document.createElement("span"); emojiSpan.textContent = cat2emoji[main] || "📍";
+    const nameSpan = document.createElement("span"); nameSpan.textContent = main;
+    titleWrapper.appendChild(chkCat); titleWrapper.appendChild(emojiSpan); titleWrapper.appendChild(nameSpan);
+    const arrow = document.createElement("div"); arrow.className="toggle-arrow"; arrow.innerHTML="&#9654;";
+    header.appendChild(titleWrapper); header.appendChild(arrow); block.appendChild(header);
+    const sublist = document.createElement("div"); sublist.className="subcat-list"; sublist.style.paddingLeft="20px";
 
-      const chkCat = document.createElement("input");
-      chkCat.type = "checkbox";
-      chkCat.className = "small-checkbox";
-      chkCat.setAttribute("data-main", main);
-      chkCat.checked = true;
-
-      const emojiSpan = document.createElement("span");
-      emojiSpan.textContent = cat2emoji[main] || "📍";
-
-      const nameSpan = document.createElement("span");
-      nameSpan.textContent = main;
-
-      titleWrapper.appendChild(chkCat);
-      titleWrapper.appendChild(emojiSpan);
-      titleWrapper.appendChild(nameSpan);
-
-      const arrow = document.createElement("div");
-      arrow.className = "toggle-arrow";
-      arrow.innerHTML = "&#9654;"; // ►
-
-      header.appendChild(titleWrapper);
-      header.appendChild(arrow);
-      block.appendChild(header);
-
-      const sublist = document.createElement("div");
-      sublist.className = "subcat-list";
-      sublist.style.paddingLeft = "20px";
-
-      for (const sub of cat2subs[main]) {
-          const row = document.createElement("div");
-          row.className = "checkbox-wrapper";
-
-          const chkSub = document.createElement("input");
-          chkSub.type = "checkbox";
-          chkSub.checked = true;
-          chkSub.setAttribute("data-main", main);
-          chkSub.setAttribute("data-sub", sub);
-
-          const lbl = document.createElement("span");
-          lbl.textContent = sub;
-
-          row.appendChild(chkSub);
-          row.appendChild(lbl);
-          sublist.appendChild(row);
-
-          chkSub.addEventListener("change", ()=>{
-              updateCategoryCheckboxState(main);
-              updateMainCategoriesCheckbox();
-              applyFilters();
-          });
-      }
-
-      if (cat2subs[main].length === 0) {
-          const row = document.createElement("div");
-          row.textContent = "(sin subcategoría)";
-          sublist.appendChild(row);
-      }
-
-      block.appendChild(sublist);
-      categoriesWrapper.appendChild(block);
-
-      header.addEventListener("click", (e)=>{
-          e.stopPropagation();
-          const expanded = header.classList.toggle("expanded");
-          if (expanded) { sublist.style.display="flex"; arrow.innerHTML = "&#9660;"; }
-          else           { sublist.style.display="none"; arrow.innerHTML = "&#9654;"; }
-      });
-
-      chkCat.addEventListener("change", ()=>{
-          const check = chkCat.checked;
-          sublist.querySelectorAll("input[type=checkbox]").forEach(si=>{ si.checked = check; });
-          chkCat.indeterminate = false;
-          updateMainCategoriesCheckbox();
-          applyFilters();
-      });
+    for (const sub of (cat2subs[main]||[])) {
+      const row = document.createElement("div"); row.className="checkbox-wrapper";
+      const chkSub = document.createElement("input"); chkSub.type="checkbox"; chkSub.checked=true; chkSub.setAttribute("data-main", main); chkSub.setAttribute("data-sub", sub);
+      const lbl = document.createElement("span"); lbl.textContent=sub;
+      row.appendChild(chkSub); row.appendChild(lbl); sublist.appendChild(row);
+      chkSub.addEventListener("change", applyFilters);
+    }
+    block.appendChild(sublist); categoriesWrapper.appendChild(block);
+    header.addEventListener("click", (e)=>{ e.stopPropagation(); const expanded=header.classList.toggle("expanded"); sublist.style.display = expanded ? "flex" : "none"; arrow.innerHTML = expanded ? "&#9660;" : "&#9654;"; });
+    chkCat.addEventListener("change", ()=>{ const on=chkCat.checked; sublist.querySelectorAll("input[type=checkbox]").forEach(si=>{ si.checked=on; }); applyFilters(); });
   }
-  
-  catMainBlock.appendChild(categoriesWrapper);
-  container.appendChild(catMainBlock);
-  
-  // Toggle para el bloque principal de CATEGORÍAS
-  catMainHeader.addEventListener("click", ()=>{
-      const expanded = catMainHeader.classList.toggle("expanded");
-      if (expanded) { 
-          categoriesWrapper.style.display="block"; 
-          catMainArrow.innerHTML = "&#9660;"; 
-      } else { 
-          categoriesWrapper.style.display="none"; 
-          catMainArrow.innerHTML = "&#9654;"; 
-      }
-  });
-  
-  // Checkbox principal de CATEGORÍAS
-  catMainChk.addEventListener("change", ()=>{
-      const check = catMainChk.checked;
-      categoriesWrapper.querySelectorAll("input[type=checkbox]").forEach(chk=>{ 
-          chk.checked = check; 
-          chk.indeterminate = false;
-      });
-      catMainChk.indeterminate = false;
-      applyFilters();
+  catMainBlock.appendChild(categoriesWrapper); container.appendChild(catMainBlock);
+  catMainHeader.classList.add("expanded"); categoriesWrapper.style.display="block"; catMainArrow.innerHTML="&#9660;";
+  catMainHeader.addEventListener("click", ()=>{ const expanded=catMainHeader.classList.toggle("expanded"); categoriesWrapper.style.display = expanded ? "block" : "none"; catMainArrow.innerHTML = expanded ? "&#9660;" : "&#9654;"; });
+  catMainChk.addEventListener("change", ()=>{ const on=catMainChk.checked; categoriesWrapper.querySelectorAll("input[type=checkbox]").forEach(chk=>{ chk.checked=on; }); applyFilters(); });
+
+  // HORARIO (sin checkbox maestro, con botones Aplicar/Quitar)
+  const hourBlock = document.createElement("div"); hourBlock.className="category-block";
+  const hourHeader = document.createElement("div"); hourHeader.className="category-header";
+  const hourTitleW = document.createElement("div"); hourTitleW.className="title";
+  const hourEmoji = document.createElement("span"); hourEmoji.textContent="⏰";
+  const hourName = document.createElement("span"); hourName.textContent="HORARIO";
+  hourTitleW.appendChild(hourEmoji); hourTitleW.appendChild(hourName);
+  const hourArrow = document.createElement("div"); hourArrow.className="toggle-arrow"; hourArrow.innerHTML="&#9654;";
+  hourHeader.appendChild(hourTitleW); hourHeader.appendChild(hourArrow);
+  hourBlock.appendChild(hourHeader);
+
+  const hoursWrapper = document.createElement("div"); hoursWrapper.className="subcat-list"; hoursWrapper.style.paddingLeft="12px"; hoursWrapper.id="hours-wrapper";
+
+  const dayRow = document.createElement("div"); dayRow.className="checkbox-wrapper"; dayRow.style.alignItems="center";
+  const dayLbl = document.createElement("label"); dayLbl.textContent = "Día:"; dayLbl.style.minWidth = "40px";
+  const daySelect = document.createElement("select"); daySelect.id="day-select"; daySelect.style.flex="1";
+  ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"].forEach((d,i)=>{ const opt=document.createElement("option"); opt.value=String(i); opt.textContent=d; daySelect.appendChild(opt); });
+  dayRow.appendChild(dayLbl); dayRow.appendChild(daySelect);
+
+  const timeRow = document.createElement("div"); timeRow.className="checkbox-wrapper"; timeRow.style.alignItems="center";
+  const timeLbl = document.createElement("label"); timeLbl.textContent = "Hora:"; timeLbl.style.minWidth = "40px";
+  const timeInput = document.createElement("input"); timeInput.type="time"; timeInput.id="time-input"; timeInput.step=60;
+  timeRow.appendChild(timeLbl); timeRow.appendChild(timeInput);
+
+  const actionsRow = document.createElement("div"); actionsRow.style.display="flex"; actionsRow.style.gap="6px"; actionsRow.style.marginTop="6px";
+  const applyBtn = document.createElement("button"); applyBtn.textContent="Aplicar horario";
+  const clearBtn = document.createElement("button"); clearBtn.textContent="Quitar filtro";
+  actionsRow.appendChild(applyBtn); actionsRow.appendChild(clearBtn);
+
+  const hint = document.createElement("div"); hint.style.fontSize="12px"; hint.style.color="#666"; hint.textContent = "Elige día y hora y pulsa “Aplicar horario”.";
+  hoursWrapper.appendChild(dayRow); hoursWrapper.appendChild(timeRow); hoursWrapper.appendChild(actionsRow); hoursWrapper.appendChild(hint);
+
+  hourBlock.appendChild(hoursWrapper);
+  container.appendChild(hourBlock);
+
+  hourHeader.addEventListener("click", (e)=>{
+    e.stopPropagation();
+    const expanded=hourHeader.classList.toggle("expanded");
+    hoursWrapper.style.display = expanded ? "block" : "none";
+    hourArrow.innerHTML = expanded ? "&#9660;" : "&#9654;";
   });
 
-  // Botones globales
-  document.getElementById("show-all").addEventListener("click", ()=>{
-      document.querySelectorAll("#categories-container input[type=checkbox]").forEach(chk=>{ chk.checked=true; chk.indeterminate=false; });
-      updateMainCategoriesCheckbox();
+  // valores por defecto (día y hora actuales)
+  (function setDefaultDayTime(){
+    const now=new Date();
+    daySelect.value=String((now.getDay()+6)%7);
+    const hh=String(now.getHours()).padStart(2,"0");
+    const mm=String(now.getMinutes()).padStart(2,"0");
+    timeInput.value = `${hh}:${mm}`;
+  })();
+
+  // estado del filtro de horario controlado por botones
+  let hourFilterActive = false;
+
+  applyBtn.addEventListener("click", ()=>{
+    if(!timeInput.value) { alert("Selecciona una hora."); return; }
+    hourFilterActive = true;
+    applyFilters();
+  });
+  clearBtn.addEventListener("click", ()=>{
+    hourFilterActive = false;
+    applyFilters();
+  });
+
+  // === Helpers filtros simples (OR interno, AND externo) ===
+  function createSimpleFilterBlock(opts){
+    const block  = document.createElement("div"); block.className="category-block";
+    const header = document.createElement("div"); header.className="category-header";
+    const titleW = document.createElement("div"); titleW.className="title";
+    const em = document.createElement("span"); em.textContent = opts.emoji || "🗂️";
+    const nm = document.createElement("span"); nm.textContent = opts.title;
+    titleW.appendChild(em); titleW.appendChild(nm);
+    const arrow = document.createElement("div"); arrow.className="toggle-arrow"; arrow.innerHTML="&#9654;";
+    header.appendChild(titleW); header.appendChild(arrow);
+    block.appendChild(header);
+
+    const wrapper = document.createElement("div"); wrapper.className="subcat-list"; wrapper.style.paddingLeft="20px";
+
+    (opts.values||[]).forEach(v=>{
+      const row = document.createElement("div"); row.className="checkbox-wrapper";
+      const chk = document.createElement("input"); chk.type="checkbox"; chk.className="small-checkbox";
+      chk.checked = false;
+      chk.setAttribute("data-filter", opts.id);
+      chk.setAttribute("data-value", String(v));
+      const lbl = document.createElement("span"); lbl.textContent = String(v);
+      row.appendChild(chk); row.appendChild(lbl);
+      wrapper.appendChild(row);
+      chk.addEventListener("change", applyFilters);
+    });
+
+    block.appendChild(wrapper);
+    container.appendChild(block);
+
+    header.addEventListener("click", (e)=>{
+      e.stopPropagation();
+      const expanded=header.classList.toggle("expanded");
+      wrapper.style.display = expanded ? "flex" : "none";
+      arrow.innerHTML = expanded ? "&#9660;" : "&#9654;";
+    });
+
+    header.classList.add("expanded");
+    wrapper.style.display="flex";
+    arrow.innerHTML="&#9660;";
+  }
+
+  function getActiveValues(filterId){
+    const list = Array.from(document.querySelectorAll(`input[data-filter="${filterId}"][type="checkbox"]`));
+    return new Set(list.filter(x=>x.checked).map(x=>x.getAttribute("data-value")));
+  }
+
+  // Bloques simples
+  createSimpleFilterBlock({
+    id: "acc_silla",
+    emoji: "♿",
+    title: "ACCESIBILIDAD SILLA DE RUEDAS",
+    values: filtersUnique["acc_silla"] || []
+  });
+  createSimpleFilterBlock({
+    id: "precio",
+    emoji: "💶",
+    title: "PRECIO",
+    values: filtersUnique["precio"] || []
+  });
+
+  // ========= NUEVOS BLOQUES DE UMBRAL: VALORACIÓN y NÚMERO DE RESEÑAS =========
+  let ratingFilterActive = false;
+  let reviewsFilterActive = false;
+
+  function createThresholdFilterBlock(opts){
+    const block  = document.createElement("div"); block.className="category-block";
+    const header = document.createElement("div"); header.className="category-header";
+    const titleW = document.createElement("div"); titleW.className="title";
+    const em = document.createElement("span"); em.textContent = opts.emoji || "⭐";
+    const nm = document.createElement("span"); nm.textContent = opts.title;
+    titleW.appendChild(em); titleW.appendChild(nm);
+    const arrow = document.createElement("div"); arrow.className="toggle-arrow"; arrow.innerHTML="&#9654;";
+    header.appendChild(titleW); header.appendChild(arrow);
+    block.appendChild(header);
+
+    const wrapper = document.createElement("div"); wrapper.className="subcat-list"; wrapper.style.paddingLeft="12px";
+
+    const row = document.createElement("div"); row.className="checkbox-wrapper"; row.style.alignItems="center";
+    const label = document.createElement("label"); label.textContent = opts.label + ":"; label.style.minWidth="150px";
+    const input = document.createElement("input"); input.type="number"; input.id = opts.inputId;
+    if (opts.min !== undefined) input.min = String(opts.min);
+    if (opts.max !== undefined) input.max = String(opts.max);
+    input.step = String(opts.step ?? 1);
+    input.style.flex="1";
+    if (opts.placeholder) input.placeholder = opts.placeholder;
+
+    row.appendChild(label); row.appendChild(input);
+
+    const actionsRow = document.createElement("div"); actionsRow.style.display="flex"; actionsRow.style.gap="6px"; actionsRow.style.marginTop="6px";
+    const applyBtn = document.createElement("button"); applyBtn.textContent="Aplicar " + opts.shortTitle;
+    const clearBtn = document.createElement("button"); clearBtn.textContent="Quitar filtro";
+    actionsRow.appendChild(applyBtn); actionsRow.appendChild(clearBtn);
+
+    const hint = document.createElement("div"); hint.style.fontSize="12px"; hint.style.color="#666"; hint.textContent = opts.hint;
+
+    wrapper.appendChild(row); wrapper.appendChild(actionsRow); wrapper.appendChild(hint);
+    block.appendChild(wrapper);
+    container.appendChild(block);
+
+    header.addEventListener("click", (e)=>{
+      e.stopPropagation();
+      const expanded=header.classList.toggle("expanded");
+      wrapper.style.display = expanded ? "block" : "none";
+      arrow.innerHTML = expanded ? "&#9660;" : "&#9654;";
+    });
+
+    // abierto por defecto
+    header.classList.add("expanded"); wrapper.style.display="block"; arrow.innerHTML="&#9660;";
+
+    applyBtn.addEventListener("click", ()=>{
+      const val = input.value.trim();
+      if (val === "") { alert("Introduce un valor numérico."); return; }
+      const num = parseFloat(val);
+      if (Number.isNaN(num)) { alert("Valor no válido."); return; }
+      if (opts.min !== undefined && num < opts.min) { alert("El valor debe ser ≥ " + opts.min + "."); return; }
+      if (opts.max !== undefined && num > opts.max) { alert("El valor debe ser ≤ " + opts.max + "."); return; }
+      if (opts.type === "rating") ratingFilterActive = true;
+      if (opts.type === "reviews") reviewsFilterActive = true;
       applyFilters();
+    });
+    clearBtn.addEventListener("click", ()=>{
+      if (opts.type === "rating") ratingFilterActive = false;
+      if (opts.type === "reviews") reviewsFilterActive = false;
+      applyFilters();
+    });
+  }
+
+  createThresholdFilterBlock({
+    type: "rating",
+    emoji: "⭐",
+    title: "VALORACIÓN",
+    shortTitle: "valoración",
+    label: "Mínimo (0–5)",
+    inputId: "rating-input",
+    min: 0, max: 5, step: 0.1,
+    placeholder: "p.ej. 2.3",
+    hint: "Muestra lugares con valoración mayor o igual al valor."
+  });
+
+  createThresholdFilterBlock({
+    type: "reviews",
+    emoji: "🧮",
+    title: "NÚMERO DE RESEÑAS",
+    shortTitle: "n.º reseñas",
+    label: "Mínimo (≥ 0)",
+    inputId: "reviews-input",
+    min: 0, step: 1,
+    placeholder: "p.ej. 23",
+    hint: "Muestra lugares con un número de reseñas mayor o igual al valor."
+  });
+  // ========= FIN NUEVOS BLOQUES =========
+
+  createSimpleFilterBlock({
+    id: "estado",
+    emoji: "🏷️",
+    title: "ESTADO DE NEGOCIO",
+    values: filtersUnique["estado"] || []
+  });
+  createSimpleFilterBlock({
+    id: "reserva",
+    emoji: "📅",
+    title: "RESERVA POSIBLE",
+    values: filtersUnique["reserva"] || []
+  });
+
+  document.getElementById("show-all").addEventListener("click", ()=>{
+    document.querySelectorAll("#categories-container input[type=checkbox]").forEach(chk=>{ chk.checked=true; });
+    ratingFilterActive = false; reviewsFilterActive = false; // restablece umbrales
+    applyFilters();
   });
   document.getElementById("hide-all").addEventListener("click", ()=>{
-      document.querySelectorAll("#categories-container input[type=checkbox]").forEach(chk=>{ chk.checked=false; chk.indeterminate=false; });
-      updateMainCategoriesCheckbox();
-      applyFilters();
+    document.querySelectorAll("#categories-container input[type=checkbox]").forEach(chk=>{ chk.checked=false; });
+    applyFilters();
   });
 
-  // Helpers de UI (definidos después para que conozcan funciones) -----
-  function updateCategoryCheckboxState(main) {
-      const subs = Object.keys(layerByCatSub[main] || {});
-      const catCheckbox = document.querySelector(`input[data-main='${main}']`);
-      const subChecks = subs.map(s=> document.querySelector(`input[data-main='${main}'][data-sub='${s}']`));
-      const checkedCount = subChecks.filter(c=>c && c.checked).length;
-      if (!catCheckbox) return;
-      if (checkedCount===0)       { catCheckbox.checked=false; catCheckbox.indeterminate=false; }
-      else if (checkedCount===subChecks.length) { catCheckbox.checked=true;  catCheckbox.indeterminate=false; }
-      else                        { catCheckbox.checked=false; catCheckbox.indeterminate=true;  }
+  function setMarkerVisible(marker, visible){
+    const el = marker._icon; if(el) el.style.display = visible ? "" : "none";
+    const sh = marker._shadow; if(sh) sh.style.display = visible ? "" : "none";
   }
-  
-  // Función para actualizar el estado del checkbox principal de CATEGORÍAS
-  function updateMainCategoriesCheckbox() {
-      const categoriesWrapper = document.querySelector(".subcat-list");
-      const catMainChk = document.getElementById("cat-main-chk");
-      if (!categoriesWrapper || !catMainChk) return;
-      
-      const allChecks = categoriesWrapper.querySelectorAll("input[type=checkbox]");
-      const checkedCount = Array.from(allChecks).filter(c=>c.checked).length;
-      
-      if (checkedCount === 0) { 
-          catMainChk.checked = false; 
-          catMainChk.indeterminate = false; 
-      } else if (checkedCount === allChecks.length) { 
-          catMainChk.checked = true;  
-          catMainChk.indeterminate = false; 
-      } else { 
-          catMainChk.checked = false; 
-          catMainChk.indeterminate = true;  
+
+  function markerMatchesCategoryFilters(marker){
+    const catToSubs = marker._catToSubs;
+    const mains = Object.keys(catToSubs);
+    for (const main of mains){
+      const subs = catToSubs[main];
+      for (const sub of subs){
+        const chk = document.querySelector(`input[data-main='${main}'][data-sub='${sub}']`);
+        if (chk && chk.checked) return true;
       }
+    }
+    return false;
   }
 
-  /****************** APLICAR FILTROS *******************************/
-  function applyFilters() {
-      /* --- FAVORITOS --- */
-      if (favChk.checked) { if (!map.hasLayer(favoritesLayer)) map.addLayer(favoritesLayer); }
-      else                { if (map.hasLayer(favoritesLayer))  map.removeLayer(favoritesLayer); }
+  // === LÓGICA DE FILTRADO (AND entre bloques) ===
+  function applyFilters(){
+    const favOn = document.getElementById('fav-main-chk').checked;
+    if (favOn){ if(!map.hasLayer(favoritesLayer)) favoritesLayer.addTo(map); }
+    else { if(map.hasLayer(favoritesLayer)) map.removeLayer(favoritesLayer); }
 
-      /* --- CAPAS NORMALES --- */
-      for (const main in layerByCatSub) {
-          for (const sub in layerByCatSub[main]) {
-              const chk = document.querySelector(`input[data-main='${main}'][data-sub='${sub}']`);
-              const layer = layerByCatSub[main][sub];
-              if (chk && chk.checked) { if (!map.hasLayer(layer)) map.addLayer(layer); }
-              else                    { if (map.hasLayer(layer))  map.removeLayer(layer); }
-          }
+    // horario activado por botón
+    const daySel   = document.getElementById("day-select")?.value ?? "";
+    const timeSel  = document.getElementById("time-input")?.value ?? "";
+    const timeFilterOn = (typeof hourFilterActive !== "undefined") && hourFilterActive && daySel!=="" && timeSel!=="";
+    let dow=null, minute=null;
+    if(timeFilterOn){ dow=parseInt(daySel,10); const [HH,MM]=timeSel.split(":").map(x=>parseInt(x,10)); minute=HH*60+MM; }
+
+    // filtros simples
+    const accSet     = getActiveValues("acc_silla");
+    const precioSet  = getActiveValues("precio");
+    const estadoSet  = getActiveValues("estado");
+    const reservaSet = getActiveValues("reserva");
+
+    const accActive     = accSet.size > 0;
+    const precioActive  = precioSet.size > 0;
+    const estadoActive  = estadoSet.size > 0;
+    const reservaActive = reservaSet.size > 0;
+
+    // filtros de umbral
+    const ratingInput = document.getElementById("rating-input");
+    const reviewsInput = document.getElementById("reviews-input");
+    const ratingFilterOn = ratingFilterActive && ratingInput && ratingInput.value.trim() !== "";
+    const reviewsFilterOn = reviewsFilterActive && reviewsInput && reviewsInput.value.trim() !== "";
+    const ratingThreshold = ratingFilterOn ? parseFloat(ratingInput.value) : null;
+    const reviewsThreshold = reviewsFilterOn ? parseFloat(reviewsInput.value) : null;
+
+    for(const marker of allMarkers){
+      let visible = markerMatchesCategoryFilters(marker);
+
+      if (visible && timeFilterOn){
+        let sched = scheduleCache.get(marker._recId);
+        if(!sched){ sched = parseSchedule(marker._rec.horario || ""); scheduleCache.set(marker._recId, sched); }
+        visible = isOpenAtSchedule(sched, dow, minute);
       }
+
+      if (visible && accActive){
+        const v = String(marker._rec.accesibilidad_silla_ruedas);
+        visible = accSet.has(v);
+      }
+      if (visible && precioActive){
+        const v = String(marker._rec.precio);
+        visible = precioSet.has(v);
+      }
+      if (visible && estadoActive){
+        const v = String(marker._rec.estado_negocio);
+        visible = estadoSet.has(v);
+      }
+      if (visible && reservaActive){
+        const v = String(marker._rec.reserva_posible);
+        visible = reservaSet.has(v);
+      }
+
+      // Umbral de valoración (>=)
+      if (visible && ratingFilterOn){
+        const v = Number(marker._rec.rating);
+        visible = !Number.isNaN(v) && v >= ratingThreshold;
+      }
+      // Umbral de reseñas (>=)
+      if (visible && reviewsFilterOn){
+        const v = Number(marker._rec.total_reviews);
+        visible = !Number.isNaN(v) && v >= reviewsThreshold;
+      }
+
+      setMarkerVisible(marker, visible);
+      marker._updateEmoji();
+    }
   }
 
-  // Toggle global del panel
   const panelToggle = document.getElementById("panel-toggle");
   const filterBody  = document.getElementById("filter-body");
   let collapsed = false;
-  panelToggle.addEventListener("click", ()=>{
-      collapsed = !collapsed;
-      if (collapsed) { filterBody.style.display="none"; panelToggle.innerHTML="&#9654;"; }
-      else           { filterBody.style.display="flex"; panelToggle.innerHTML="&#9660;"; }
-  });
+  panelToggle.addEventListener("click", ()=>{ collapsed = !collapsed; filterBody.style.display = collapsed ? "none" : "flex"; panelToggle.innerHTML = collapsed ? "&#9654;" : "&#9660;"; });
 
-  // Primera aplicación de filtros
   applyFilters();
 });
 </script>
 """
 
-filter_control = folium.Element(js)
-m.get_root().html.add_child(filter_control)
-
-# 9) Guardar HTML ---------------------------------------------------
+m.get_root().html.add_child(folium.Element(js))
 m.save(HTML_OUT)
-print("✔️  Mapa con panel de filtros + favoritos guardado en", HTML_OUT)
+print("✔️  Mapa (filtros actualizados con valoración y número de reseñas) guardado en", HTML_OUT)

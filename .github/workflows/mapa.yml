@@ -3,8 +3,8 @@ name: Rebuild Map
 on:
   push:
     paths:
-      - 'data/BBDDTUI_unida.csv'   # se dispara solo si cambia este CSV
-  workflow_dispatch: {}            # también permite lanzarlo manualmente desde GitHub
+      - 'data/BBDDTUI_unida.csv'   # se ejecuta cuando cambia el CSV
+  workflow_dispatch: {}             # permite lanzarlo manualmente
 
 jobs:
   build-map:
@@ -17,7 +17,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.8'   # o la versión que uséis (>=3.8 recomendado)
+          python-version: '3.10'   # usa 3.10 (más moderno que tu 3.8 local)
 
       - name: Install deps for map generator
         run: |
@@ -26,15 +26,14 @@ jobs:
 
       - name: Generate map HTML
         run: |
-          python scripts/make_map_madrid.py \
-            --csv data/BBDDTUI_unida.csv \
-            --out static/mapa/mapa_madrid.html \
-            --cache data/geocode_cache.db
+          python scripts/make_map_madrid.py
 
       - name: Commit updated map
+        if: github.event_name != 'pull_request'   # evita push en PR
         run: |
-          git config user.name  "CI Bot"
-          git config user.email "ci@example.com"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add static/mapa/mapa_madrid.html
           git commit -m "CI: update mapa_madrid.html" || echo "No changes"
+          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
           git push
