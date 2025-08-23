@@ -1,21 +1,23 @@
 name: Rebuild Map
 
 permissions:
-  contents: write   # permite hacer commit/push con GITHUB_TOKEN cuando corresponda
+  contents: write   # habilita push cuando toque (en ramas ≠ main)
 
 on:
-  # Dispara el workflow en cualquier push que toque CSV o código relevante
   push:
     branches:
-      - '**'
+      - '**'   # se ejecuta en cualquier rama (incluida main)
     paths:
       - 'data/BBDDTUI_unida.csv'
       - 'scripts/**'
       - 'templates/**'
       - 'app.py'
       - '.github/workflows/mapa.yml'
-  # Permite lanzarlo manualmente desde Actions
-  workflow_dispatch: {}
+  workflow_dispatch: {}   # permite lanzarlo manualmente
+
+concurrency:
+  group: map-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-map:
@@ -25,19 +27,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2   # necesitamos mirar el commit anterior para detectar si cambió el CSV
+          fetch-depth: 2   # para detectar cambios del CSV comparando con el commit anterior
 
       - name: Detect if CSV changed in this push
         id: changed_csv
         shell: bash
         run: |
-          # En algunos casos HEAD~1 no existe (primer commit).
-          # Usamos fetch-depth: 2 para tener al menos un padre.
           set -eo pipefail
           if git rev-parse HEAD~1 >/dev/null 2>&1; then
             CHANGED=$(git diff --name-only HEAD~1 HEAD | grep -c '^data/BBDDTUI_unida.csv$' || true)
           else
-            # Si no hay HEAD~1, miramos directamente el listado del commit actual
             CHANGED=$(git show --name-only --pretty="" | grep -c '^data/BBDDTUI_unida.csv$' || true)
           fi
           if [ "$CHANGED" -gt 0 ]; then
@@ -60,11 +59,11 @@ jobs:
         run: |
           python scripts/make_map_madrid.py
 
-      # Solo comitea/empúja si:
-      # - NO es un pull_request, y
-      # - Estamos en main (cambio de código ya mergeado), o bien cambió el CSV en este push.
-      - name: Commit updated map
-        if: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || steps.changed_csv.outputs.changed == 'true') }}
+      # 🔑 Cambios CLAVE:
+      # - Antes: hacías commit si CHANGED == true (lo que iba bien, pero en main creaba un segundo push tras el merge)
+      # - Ahora: SOLO commit/push si cambió el CSV *y* NO estamos en main
+      - name: Commit updated map (only when CSV changed, and not on main)
+        if: ${{ steps.changed_csv.outputs.changed == 'true' && github.ref != 'refs/heads/main' }}
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
