@@ -1,50 +1,28 @@
 name: Rebuild Map
 
-permissions:
-  contents: write   # permite hacer commit/push con GITHUB_TOKEN cuando corresponda
-
+# Solo ejecuta en pushes a ramas distintas de main
 on:
-  # Dispara el workflow en cualquier push que toque CSV o código relevante
   push:
-    branches:
-      - '**'
+    branches-ignore:
+      - main
     paths:
       - 'data/BBDDTUI_unida.csv'
       - 'scripts/**'
       - 'templates/**'
       - 'app.py'
       - '.github/workflows/mapa.yml'
-  # Permite lanzarlo manualmente desde Actions
   workflow_dispatch: {}
+
+concurrency:
+  group: map-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-map:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 2   # necesitamos mirar el commit anterior para detectar si cambió el CSV
-
-      - name: Detect if CSV changed in this push
-        id: changed_csv
-        shell: bash
-        run: |
-          # En algunos casos HEAD~1 no existe (primer commit).
-          # Usamos fetch-depth: 2 para tener al menos un padre.
-          set -eo pipefail
-          if git rev-parse HEAD~1 >/dev/null 2>&1; then
-            CHANGED=$(git diff --name-only HEAD~1 HEAD | grep -c '^data/BBDDTUI_unida.csv$' || true)
-          else
-            # Si no hay HEAD~1, miramos directamente el listado del commit actual
-            CHANGED=$(git show --name-only --pretty="" | grep -c '^data/BBDDTUI_unida.csv$' || true)
-          fi
-          if [ "$CHANGED" -gt 0 ]; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -60,11 +38,8 @@ jobs:
         run: |
           python scripts/make_map_madrid.py
 
-      # Solo comitea/empúja si:
-      # - NO es un pull_request, y
-      # - Estamos en main (cambio de código ya mergeado), o bien cambió el CSV en este push.
+      # Commitea SIEMPRE (estamos en ramas ≠ main)
       - name: Commit updated map
-        if: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || steps.changed_csv.outputs.changed == 'true') }}
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
