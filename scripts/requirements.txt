@@ -1,4 +1,5 @@
 pandas
 folium
+tqdm
 geopy
 ratelimit
