@@ -6,7 +6,7 @@ from geopy.geocoders import Nominatim
 from ratelimit import limits, sleep_and_retry
 
 # ------------------------------------------------------------------
-CSV_FILE  = "data/BBDDTUI_unida.csv"
+CSV_FILE  = "data/BBDD_TUI.csv"
 HTML_OUT  = "static/mapa/mapa_madrid.html"
 CACHE_DB  = "geocode_cache.db"
 
