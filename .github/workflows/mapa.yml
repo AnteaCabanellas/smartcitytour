@@ -8,7 +8,7 @@ on:
     branches:
       - '**'   # se ejecuta en cualquier rama (incluida main)
     paths:
-      - 'data/BBDDTUI_unida.csv'
+      - 'data/BBDD_TUI.csv'
       - 'scripts/**'
       - 'templates/**'
       - 'app.py'
@@ -35,9 +35,9 @@ jobs:
         run: |
           set -eo pipefail
           if git rev-parse HEAD~1 >/dev/null 2>&1; then
-            CHANGED=$(git diff --name-only HEAD~1 HEAD | grep -c '^data/BBDDTUI_unida.csv$' || true)
+            CHANGED=$(git diff --name-only HEAD~1 HEAD | grep -c '^data/BBDD_TUI.csv$' || true)
           else
-            CHANGED=$(git show --name-only --pretty="" | grep -c '^data/BBDDTUI_unida.csv$' || true)
+            CHANGED=$(git show --name-only --pretty="" | grep -c '^data/BBDD_TUI.csv$' || true)
           fi
           if [ "$CHANGED" -gt 0 ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
