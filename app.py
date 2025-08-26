@@ -71,8 +71,10 @@ def haversine_km(lat1, lon1, lat2, lon2):
 # ======================
 # Limpieza de datos
 # ======================
+
 BOOL_TRUE = {"si","sí","true","1","y","yes"}
 BOOL_FALSE = {"no","false","0","n"}
+
 
 def clean_bool(val):
     s = norm_text("" if val is None else str(val))
@@ -296,7 +298,7 @@ def is_open_now(slots, now_dt=None):
 # ======================
 # Carga y limpieza CSV
 # ======================
-CSV_PATH = "data/BBDDTUI_unida_3.csv"
+CSV_PATH = "data/dataBBDD_TUI.csv"
 
 def load_and_clean_df(csv_path=CSV_PATH) -> pd.DataFrame:
     try:
