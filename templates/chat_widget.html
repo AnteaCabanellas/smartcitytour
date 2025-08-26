@@ -6,34 +6,28 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     :root {
-      --bg: #0f172a;          /* slate-900 */
-      --panel: #111827;       /* gray-900 */
-      --bubble-user: #3b82f6; /* blue-500 */
-      --bubble-bot: #0b1222;  /* deep slate */
-      --text: #e5e7eb;        /* gray-200 */
-      --muted: #94a3b8;       /* slate-400 */
-      --accent: #22c55e;      /* green-500 */
-      --border: #1f2937;      /* gray-800 */
-      --ui-font-size: 12.5px;
-      --bubble-font-size: 12.5px;
-      --small-font-size: 11.5px;
+      --bg: #0f172a; --panel: #111827; --bubble-user: #3b82f6; --bubble-bot: #0b1222;
+      --text: #e5e7eb; --muted: #94a3b8; --accent: #22c55e; --border: #1f2937;
+      --ui-font-size: 12.5px; --bubble-font-size: 12.5px; --small-font-size: 11.5px;
     }
     @media (prefers-color-scheme: light) {
-      :root {
-        --bg: #f1f5f9; --panel: #ffffff; --bubble-user: #2563eb;
-        --bubble-bot: #f3f4f6; --text: #0f172a; --muted: #475569;
-        --accent: #16a34a; --border: #e5e7eb;
-      }
+      :root { --bg:#f1f5f9; --panel:#fff; --bubble-user:#2563eb; --bubble-bot:#f3f4f6;
+        --text:#0f172a; --muted:#475569; --accent:#16a34a; --border:#e5e7eb; }
     }
     * { box-sizing: border-box; }
     html, body { height: 100%; }
     body {
       margin: 0;
-      background: radial-gradient(1200px 800px at 20% -10%, rgba(34,197,94,.15), transparent 60%),
-                 radial-gradient(900px 600px at 120% 0%, rgba(59,130,246,.12), transparent 50%), var(--bg);
-      color: var(--text); font-family: system-ui, -apple-system, Segoe UI, Roboto, Inter, sans-serif; line-height: 1.35;
+      background:
+        radial-gradient(1200px 800px at 20% -10%, rgba(34,197,94,.15), transparent 60%),
+        radial-gradient(900px 600px at 120% 0%, rgba(59,130,246,.12), transparent 50%),
+        var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Inter, sans-serif;
+      line-height: 1.35;
+      font-size: var(--ui-font-size);
     }
-    .shell { max-width: 920px; margin: 0 auto; padding: 24px; display: grid; grid-template-rows: auto 1fr auto; gap: 16px; height: 100dvh; }
+    .shell { max-width: 980px; margin: 0 auto; padding: 24px; display: grid; grid-template-rows: auto 1fr auto; gap: 16px; height: 100dvh; }
     header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border: 1px solid var(--border); background: var(--panel); border-radius: 14px; }
     .brand { display: flex; align-items: center; gap: 12px; }
     .badge, .today { font-size: 12px; color: var(--muted); }
@@ -42,12 +36,13 @@
     .chip { border: 1px solid var(--border); background: transparent; color: var(--text); padding: 6px 10px; border-radius: 999px; cursor: pointer; font-size: 13px; }
     .chip:hover { border-color: var(--muted); }
     .toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+    .select { background: transparent; color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; font-size: 12px; }
 
     #chatbox { border: 1px solid var(--border); background: var(--panel); border-radius: 16px; padding: 12px; display: grid; grid-template-rows: 1fr auto; min-height: 0; }
     #chatlog { overflow-y: auto; padding: 8px; min-height: 280px; max-height: 64vh; scroll-behavior: smooth; }
     .row { display: flex; margin: 10px 0; gap: 10px; }
     .row.user { justify-content: flex-end; }
-    .bubble { max-width: min(78%, 680px); padding: 10px 12px; border-radius: 14px; border: 1px solid var(--border); white-space: pre-wrap; word-wrap: break-word; overflow-wrap: anywhere; }
+    .bubble { max-width: min(78%, 720px); padding: 10px 12px; border-radius: 14px; border: 1px solid var(--border); white-space: pre-wrap; overflow-wrap: anywhere; }
     .user .bubble { background: var(--bubble-user); color: #fff; border-color: transparent; }
     .bot .bubble { background: var(--bubble-bot); }
     .meta { font-size: 11px; color: var(--muted); margin-top: 4px; }
@@ -72,8 +67,6 @@
     .actions { display: flex; gap: 8px; }
     .ghost { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--border); background: transparent; color: var(--text); cursor: pointer; font-size: 13px; }
     .ghost:hover{ border-color: var(--muted); }
-    .thinking { display:inline-block; width: 1.2em; text-align: left; animation: dots 1.2s steps(4, end) infinite; font-family: monospace; }
-    @keyframes dots { 0%{content:""} 25%{content:"."} 50%{content:".."} 75%{content:"..."} }
   </style>
 </head>
 <body>
@@ -85,37 +78,46 @@
           <div class="badge" id="geo-status">Ubicación: desconocida</div>
         </div>
       </div>
-      <div class="today" id="today"></div>
+      <div class="today" id="today" aria-live="polite"></div>
     </header>
 
     <div id="chatbox">
-      <div id="chatlog" aria-live="polite"></div>
+      <div id="chatlog" aria-live="polite" aria-atomic="false"></div>
 
       <div class="toolbar" style="padding:8px 8px 0;">
-        <!-- Chips actualizados para CATEGORIA_TUI/TIPOS_TUI -->
-        <button class="chip" data-q="cultura y arte: museos interesantes">Museos</button>
-        <button class="chip" data-q="gastronomía y ocio nocturno: bares con terraza">Bares</button>
-        <button class="chip" data-q="bienestar y deporte: gimnasios y piscinas">Gimnasios/Piscinas</button>
-        <button class="chip" data-q="naturaleza y actividades al aire libre: parques y jardines">Parques</button>
-        <button class="chip" data-q="compras: centros comerciales">Compras</button>
-        <button class="chip" data-q="cultura y arte: galerías de arte">Galerías</button>
+        <!-- Chips genéricos: envían SOLO la cabecera de TIPOS_TUI -->
+        <button type="button" class="chip" data-q="Museos">Museos</button>
+        <button type="button" class="chip" data-q="Teatros">Teatros</button>
+        <button type="button" class="chip" data-q="Discotecas">Discotecas</button>
+        <button type="button" class="chip" data-q="Bares">Bares</button>
+        <button type="button" class="chip" data-q="Cafés">Cafés</button>
+        <button type="button" class="chip" data-q="Restaurantes">Restaurantes</button>
+        <button type="button" class="chip" data-q="Parques">Parques</button>
+        <button type="button" class="chip" data-q="Centros comerciales">Centros comerciales</button>
+        <button type="button" class="chip" data-q="Tiendas">Tiendas</button>
+        <button type="button" class="chip" data-q="Supermercados">Supermercados</button>
+        <button type="button" class="chip" data-q="Gimnasios">Gimnasios</button>
+        <button type="button" class="chip" data-q="Spas">Spas</button>
 
         <label class="toggle"><input type="checkbox" id="plan-hoy" /> Plan para hoy</label>
         <label class="toggle"><input type="checkbox" id="use-geo" /> Usar mi ubicación</label>
-        <label class="toggle"><input type="checkbox" id="prefer-open" /> Priorizar abiertos ahora</label>
-        <label class="toggle">Inicio
-          <input type="time" id="start-time" value="09:30" style="background:transparent;color:var(--text);border:1px solid var(--border);border-radius:8px;padding:4px 6px;font-size:12px" />
+        <label class="toggle"><input type="checkbox" id="prefer-open" /> Abiertos ahora</label>
+        <label class="toggle"><input type="checkbox" id="wheelchair" /> Accesible</label>
+        <label class="toggle"><input type="checkbox" id="reservas" /> Admite reservas</label>
+
+        <label class="toggle" for="start-time">Inicio
+          <input type="time" id="start-time" value="09:30" class="select" />
         </label>
 
         <div class="actions" style="margin-left:auto">
-          <button class="ghost" id="clear">Limpiar</button>
-          <button class="ghost" id="export">Exportar</button>
+          <button type="button" class="ghost" id="clear" aria-label="Limpiar conversación">Limpiar</button>
+          <button type="button" class="ghost" id="export" aria-label="Exportar conversación">Exportar</button>
         </div>
       </div>
 
-      <form id="composer">
-        <textarea id="user-input" placeholder="Escribe tu mensaje... (Shift+Enter para nueva línea)" required></textarea>
-        <button type="submit" class="send" id="send">Enviar</button>
+      <form id="composer" novalidate>
+        <textarea id="user-input" placeholder="Escribe tu mensaje... (Shift+Enter para nueva línea)" required aria-label="Mensaje" autocomplete="off" autocapitalize="sentences" autofocus></textarea>
+        <button type="submit" class="send" id="send" aria-label="Enviar mensaje">Enviar</button>
       </form>
     </div>
   </div>
@@ -133,6 +135,8 @@
     const startTimeEl = $("#start-time");
     const todayBox = $("#today");
     const geoStatus = $("#geo-status");
+    const wheelchair = $("#wheelchair");
+    const reservas = $("#reservas");
 
     let userLat = null, userLon = null;
 
@@ -142,40 +146,79 @@
       todayBox.textContent = fmt.format(d);
     }
     setToday();
+    setInterval(setToday, 60_000);
 
-    // Persistencia simple
-    let chatHistory = JSON.parse(localStorage.getItem("chatHistory") || "[]");
-    function saveHistory(){ localStorage.setItem("chatHistory", JSON.stringify(chatHistory)); }
+    // ===== Persistencia simple =====
+    const MAX_HISTORY = 24;
+    let chatHistory = [];
+    try { chatHistory = JSON.parse(localStorage.getItem("chatHistory") || "[]"); } catch { chatHistory = []; }
 
+    function saveHistory(){
+      if (chatHistory.length > MAX_HISTORY) chatHistory = chatHistory.slice(-MAX_HISTORY);
+      localStorage.setItem("chatHistory", JSON.stringify(chatHistory));
+    }
+
+    // Persistencia de toggles/hora
+    const prefs = JSON.parse(localStorage.getItem("uiPrefs") || "{}");
+    ["plan-hoy","use-geo","prefer-open","wheelchair","reservas"].forEach(id=>{
+      if (id in prefs) $(`#${id}`).checked = !!prefs[id];
+      $(`#${id}`).addEventListener("change", ()=>{
+        prefs[id] = $(`#${id}`).checked;
+        localStorage.setItem("uiPrefs", JSON.stringify(prefs));
+      });
+    });
+    if (prefs.startTime) startTimeEl.value = prefs.startTime;
+    startTimeEl.addEventListener("change", ()=>{
+      prefs.startTime = startTimeEl.value;
+      localStorage.setItem("uiPrefs", JSON.stringify(prefs));
+    });
+
+    // Mensaje inicial
     if (chatHistory.length === 0) {
-      addBot("¡Hola! ¿En qué puedo ayudarte hoy?");
-      chatHistory.push({ role: "assistant", content: "¡Hola! ¿En qué puedo ayudarte hoy?" });
+      const hello = "¡Hola! ¿Qué te apetece buscar? Puedes pedir: 'bares abiertos ahora', 'museos accesibles', 'parques tranquilos' o un 'plan para hoy'.";
+      addBot(hello);
+      chatHistory.push({ role: "assistant", content: hello });
       saveHistory();
     } else {
-      chatHistory.forEach(m => addRow(m.role, m.content, false));
+      chatHistory.forEach(m => addRow(m.role === "assistant" ? "assistant" : m.role, m.content, false));
       scrollBottom();
     }
 
-    // ===== Markdown muy básico =====
+    // ===== Markdown básico =====
+    function escapeHtml(s){ return s.replace(/[<>&]/g, ch => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[ch])); }
+
     function mdToHtml(md) {
-      md = md.replace(/[<>&]/g, s => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[s]));
+      md = escapeHtml(md);
       md = md.replace(/```([\s\S]*?)```/g, (m, p1) => `<pre><code>${p1}</code></pre>`);
       md = md.replace(/`([^`]+)`/g, '<code>$1</code>');
       md = md.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
       md = md.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-      md = md.replace(/(https?:\/\/[^\s)]+)(?![^<]*>)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
-      md = md.replace(/(?:^|\n)[\-\•]\s+(.*)/g, (m, p1) => `\n<li>${p1}</li>`);
-      md = md.replace(/(<li>[\s\S]*<\/li>)/g, '<ul>$1</ul>');
+      const lines = md.split(/\n/);
+      let out = [], inList = false;
+      for (const line of lines) {
+        const m = line.match(/^\s*[-•]\s+(.*)$/);
+        if (m) {
+          if (!inList) { out.push("<ul>"); inList = true; }
+          out.push(`<li>${m[1]}</li>`);
+        } else {
+          if (inList) { out.push("</ul>"); inList = false; }
+          out.push(line);
+        }
+      }
+      if (inList) out.push("</ul>");
+      md = out.join("\n");
+      md = md.replace(/(https?:\/\/[^\s)]+)(?![^<]*>)/g,
+        '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
       md = md.replace(/\n{2,}/g, '\n\n').replace(/\n/g, '<br>');
       return md;
     }
 
     function addRow(role, text, withTime=true) {
       const row = document.createElement("div");
-      row.className = `row ${role}`;
+      row.className = `row ${role === "assistant" ? "bot" : role}`;
       const bubble = document.createElement("div");
       bubble.className = "bubble";
-      bubble.innerHTML = role === "assistant" ? mdToHtml(text) : text;
+      bubble.innerHTML = role === "assistant" ? mdToHtml(text) : escapeHtml(text);
       row.appendChild(bubble);
 
       if (withTime) {
@@ -192,18 +235,21 @@
     function addBot(text)  { addRow("assistant", text); }
     function scrollBottom(){ chatlog.scrollTop = chatlog.scrollHeight; }
 
+    // ===== Chips (genéricos) =====
     $$(".chip").forEach(b => b.addEventListener("click", () => {
       const q = normalizeQuery(b.dataset.q || "");
       input.value = q;
       input.focus();
     }));
 
+    // ===== Limpiar / Exportar =====
     $("#clear").addEventListener("click", () => {
       chatHistory = [];
       localStorage.removeItem("chatHistory");
       chatlog.innerHTML = "";
-      addBot("Conversación reiniciada. ¿Qué te gustaría buscar?");
-      chatHistory.push({ role: "assistant", content: "Conversación reiniciada. ¿Qué te gustaría buscar?" });
+      const msg = "Conversación reiniciada. ¿Qué te gustaría buscar?";
+      addBot(msg);
+      chatHistory.push({ role: "assistant", content: msg });
       saveHistory();
     });
 
@@ -212,43 +258,58 @@
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
       a.download = `smart-city-tour_${new Date().toISOString().slice(0,10)}.json`;
+      document.body.appendChild(a);
       a.click();
       URL.revokeObjectURL(a.href);
+      a.remove();
     });
 
     /* ==========================
        Normalización semántica
+       (mapea términos del usuario a cabeceras reales de TIPOS_TUI)
        ========================== */
     const CANON_MAP = [
-      // Bloque nuevo alineado a tus CATEGORIA_TUI / TIPOS_TUI
-      { re: /\b(gastronom(í|i)a(\s+y\s+)?ocio\s+nocturno|bares?|cocteler(í|i)as?|tapas?)\b/i, canon: "gastronomía y ocio nocturno" },
-      { re: /\b(bares?\s+con\s+terraza)\b/i, canon: "gastronomía y ocio nocturno bares con terraza" },
-      { re: /\b(bienestar(\s+y\s+)?deporte|gimnasios?|piscinas?|spas?|balnearios?)\b/i, canon: "bienestar y deporte" },
-      { re: /\b(cultura(\s+y\s+)?arte|museos?|galer(í|i)as?\s+de\s+arte|cines?|teatros?)\b/i, canon: "cultura y arte" },
-      { re: /\b(naturaleza(\s+y\s+)?actividades(\s+al\s+aire\s+libre)?|senderismo|monta(ñ|n)as?|parques?|jardines?)\b/i, canon: "naturaleza y actividades al aire libre" },
-      { re: /\b(compras?|centros?\s+comerciales?|tiendas?|mercados?|perfumer(í|i)as?)\b/i, canon: "compras" },
-      { re: /\b(alojamientos?|hoteles?|hostales?|albergues?|apartamentos?\s+tur(í|i)sticos?)\b/i, canon: "alojamiento" },
-      { re: /\b(religi(ó|o)n|iglesias?|catedrales?|basilicas?|monasterios?|mezquitas?|templos?)\b/i, canon: "religión" },
-      { re: /\b(transporte|metro|tren|estaciones?|aeropuertos?|aparcamientos?)\b/i, canon: "transporte" },
-      // Algunos mapeos previos útiles
-      { re: /\b(oficina(\s+de)?\s+turismo)\b/i, canon: "oficina de turismo" },
-      { re: /\b(galer(í|i)as?\s+de\s+arte)\b/i, canon: "cultura y arte galerías de arte" },
-      // Compatibilidad con lo antiguo
-      { re: /\b(piscinas?\s+p(ú|u)blicas?)\b/i, canon: "piscinas" },
-      { re: /\b(zoo(l(ó|o)gicos?)?|zoo)\b/i, canon: "zoológico" },
-      { re: /\b(caf(é|e)s?)\b/i, canon: "cafés" },
-      { re: /\b(parques?\s+naturales?)\b/i, canon: "parques y jardines" }
+      // Términos genéricos -> cabeceras exactas
+      { re: /\bmuseos?\b/i, canon: "Museos" },
+      { re: /\bteatros?\b/i, canon: "Teatros" },
+      { re: /\bdiscotecas?\b/i, canon: "Discotecas" },
+      { re: /\bbares?\b/i, canon: "Bares" },
+      { re: /\bcaf(é|e)s?\b/i, canon: "Cafés" },
+      { re: /\brestaurantes?\b/i, canon: "Restaurantes" },
+      { re: /\b(parques?\s+de\s+atracciones?)\b/i, canon: "Parques de atracciones" },
+      { re: /\bcentros?\s+comerciales?\b/i, canon: "Centros comerciales" },
+      { re: /\btiendas?\b/i, canon: "Tiendas" },
+      { re: /\bsupermercados?\b/i, canon: "Supermercados" },
+      { re: /\bgimnasios?\b/i, canon: "Gimnasios" },
+      { re: /\bspas?\b/i, canon: "Spas" },
+      { re: /\bparques?\b/i, canon: "Parques" },
+
+      // Especializaciones SOLO si el usuario las escribe explícitamente
+      { re: /\b(restaurante\s+italiano)\b/i, canon: "Restaurantes restaurante italiano" },
+      { re: /\b(restaurante\s+japon(é|e)s)\b/i, canon: "Restaurantes restaurante japonés" },
+      { re: /\b(bar\s+de\s+vinos?)\b/i, canon: "Bares bar de vinos" },
     ];
     const PLAN_HINTS = [
       /\b(hoy|esta\s+ma(ñ|n)ana|esta\s+tarde|esta\s+noche|este\s+finde|fin\s+de\s+semana)\b/i,
-      /\b(itinerario|ruta|tour|recorrido|agenda|plan(ificaci(ó|o)n)?)\b/i
+      /\b(itinerario|ruta|tour|recorrido|agenda|plan(ificaci(ó|o)n)?)\b/i,
+      /\b(plan\s*semanal|semana)\b/i
     ];
     function normalizeQuery(raw) {
       let q = raw.trim();
       CANON_MAP.forEach(({re, canon}) => { q = q.replace(re, canon); });
       return q.replace(/\s{2,}/g, " ").trim();
     }
+    function isWeekly(raw){ return /\b(plan\s*semanal|semana)\b/i.test(raw); }
     function shouldPlan(raw) { return PLAN_HINTS.some(re => re.test(raw)); }
+
+    // Construye sufijo de filtros que el back entiende por texto
+    function buildFilterSuffix() {
+      const parts = [];
+      if (preferOpen.checked) parts.push("abiertos ahora");
+      if (wheelchair.checked) parts.push("accesible silla de ruedas");
+      if (reservas.checked) parts.push("reserva");
+      return parts.join(" ").trim();
+    }
 
     // ===== Geolocalización (opcional) =====
     async function requestGeo() {
@@ -271,31 +332,48 @@
         { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
       );
     }
-    useGeo.addEventListener("change", () => {
-      if (useGeo.checked) requestGeo();
+    $("#use-geo").addEventListener("change", (e) => {
+      if (e.target.checked) requestGeo();
       else { userLat = userLon = null; geoStatus.textContent = "Ubicación: desactivada"; }
     });
 
-    // ===== Envío (con normalización + plan + ubicación) =====
+    // ===== “Pensando…” animado =====
+    function startDots(rowEl){
+      const span = rowEl.querySelector(".thinking");
+      if (!span) return;
+      let i = 0;
+      const id = setInterval(()=>{ span.textContent = ".".repeat(1 + (i++ % 3)); }, 400);
+      rowEl.dataset.dotsTimer = String(id);
+    }
+    function stopDots(rowEl){
+      const id = rowEl?.dataset?.dotsTimer;
+      if (id) { clearInterval(Number(id)); delete rowEl.dataset.dotsTimer; }
+    }
+
+    // ===== Envío =====
     $("#composer").addEventListener("submit", async (e) => {
       e.preventDefault();
       const raw = input.value.trim();
       if (!raw) return;
 
       const qNorm = normalizeQuery(raw);
-      const usePlan = planHoy.checked || shouldPlan(raw);
-      const pregunta = usePlan ? `plan para hoy: ${qNorm}` : qNorm;
+      const filters = buildFilterSuffix();
+      const finalQuery = filters ? `${qNorm} ${filters}` : qNorm;
 
-      chatHistory.push({ role: "user", content: pregunta });
+      const usePlan = planHoy.checked || shouldPlan(raw);
+      const weekly = isWeekly(raw);
+
+      chatHistory.push({ role: "user", content: finalQuery });
       saveHistory();
-      addUser(raw);
+      addUser(raw + (filters ? `  ·  filtros: ${filters}` : ""));
       input.value = "";
       input.style.height = "auto";
 
       const thinking = document.createElement("div");
       thinking.className = "row assistant";
-      thinking.innerHTML = `<div class="bubble">Pensando<span class="thinking">...</span></div>`;
+      thinking.innerHTML = `<div class="bubble">Pensando<span class="thinking">.</span></div>`;
       chatlog.appendChild(thinking);
+      startDots(thinking);
       scrollBottom();
 
       sendBtn.disabled = true;
@@ -304,17 +382,18 @@
         const payload = {
           messages: chatHistory,
           start_time: startTimeEl.value || "09:30",
+          force_plan: !!usePlan,
+          weekly: !!weekly,
+          prefer_open: !!preferOpen.checked
         };
         if (useGeo.checked && userLat != null && userLon != null) {
           payload.start_lat = userLat;
           payload.start_lon = userLon;
         }
-        if (preferOpen.checked) {
-          payload.prefer_open = true; // el back puede usarlo para afinar el orden
-        }
 
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 30000);
+
         const res = await fetch("/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -323,19 +402,30 @@
         });
         clearTimeout(timeout);
 
-        const data = await res.json();
         const lastBubble = thinking.querySelector(".bubble");
+
+        if (!res.ok) {
+          stopDots(thinking);
+          lastBubble.textContent = `❌ Error ${res.status}: no se pudo obtener respuesta.`;
+          return;
+        }
+
+        const data = await res.json();
+        stopDots(thinking);
+
         if (data && data.response) {
           lastBubble.innerHTML = mdToHtml(data.response);
           chatHistory.push({ role: "assistant", content: data.response });
           saveHistory();
           enhanceNoMatch(raw, data.response, lastBubble);
         } else {
-          lastBubble.textContent = "❌ Error en la respuesta";
+          lastBubble.textContent = "❌ Respuesta vacía del servidor.";
         }
       } catch (err) {
         const lastBubble = thinking.querySelector(".bubble");
+        stopDots(thinking);
         lastBubble.textContent = "❌ Error al contactar con el servidor.";
+        console.error(err);
       } finally {
         sendBtn.disabled = false;
         scrollBottom();
@@ -363,14 +453,15 @@
       if (!isNoMatch(assistantText)) return;
       const soft = normalizeQuery(userRaw);
       const suggestions = [];
-      if (/piscina/i.test(soft)) suggestions.push("bienestar y deporte: piscinas");
-      if (/parque/i.test(soft)) suggestions.push("naturaleza y actividades al aire libre: parques y jardines");
-      if (/muse/i.test(soft)) suggestions.push("cultura y arte: museos");
-      if (/bar/i.test(soft)) suggestions.push("gastronomía y ocio nocturno: bares con terraza");
+      if (/piscina/i.test(soft)) suggestions.push("Gimnasios");
+      if (/parque/i.test(soft)) suggestions.push("Parques");
+      if (/muse/i.test(soft)) suggestions.push("Museos");
+      if (/bar/i.test(soft)) suggestions.push("Bares");
+      if (/cafe|caf(e|é)/i.test(soft)) suggestions.push("Cafés");
 
       if (suggestions.length) {
         const sug = suggestions.map(s => `• ${s}`).join("<br>");
-        const html = `<br><div class="meta">¿Te refieres a alguna de estas búsquedas?<br>${sug}</div>`;
+        const html = `<br><div class="meta" role="note">¿Te refieres a alguna de estas búsquedas?<br>${sug}</div>`;
         bubbleEl.insertAdjacentHTML("beforeend", html);
       }
     }
