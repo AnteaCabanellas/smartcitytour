@@ -85,13 +85,13 @@
       <div id="chatlog" aria-live="polite" aria-atomic="false"></div>
 
       <div class="toolbar" style="padding:8px 8px 0;">
-        <!-- Chips genéricos: envían SOLO la cabecera de TIPOS_TUI -->
+        <!-- Chips pensados para TIPOS_TUI (cabeceras reales) -->
         <button type="button" class="chip" data-q="Museos">Museos</button>
         <button type="button" class="chip" data-q="Teatros">Teatros</button>
         <button type="button" class="chip" data-q="Discotecas">Discotecas</button>
-        <button type="button" class="chip" data-q="Bares">Bares</button>
+        <button type="button" class="chip" data-q="Bares bar de vinos">Bares</button>
         <button type="button" class="chip" data-q="Cafés">Cafés</button>
-        <button type="button" class="chip" data-q="Restaurantes">Restaurantes</button>
+        <button type="button" class="chip" data-q="Restaurantes restaurante italiano">Restaurantes</button>
         <button type="button" class="chip" data-q="Parques">Parques</button>
         <button type="button" class="chip" data-q="Centros comerciales">Centros comerciales</button>
         <button type="button" class="chip" data-q="Tiendas">Tiendas</button>
@@ -149,9 +149,11 @@
     setInterval(setToday, 60_000);
 
     // ===== Persistencia simple =====
-    const MAX_HISTORY = 24;
+    const MAX_HISTORY = 24; // evita payloads enormes
     let chatHistory = [];
-    try { chatHistory = JSON.parse(localStorage.getItem("chatHistory") || "[]"); } catch { chatHistory = []; }
+    try {
+      chatHistory = JSON.parse(localStorage.getItem("chatHistory") || "[]");
+    } catch { chatHistory = []; }
 
     function saveHistory(){
       if (chatHistory.length > MAX_HISTORY) chatHistory = chatHistory.slice(-MAX_HISTORY);
@@ -175,7 +177,7 @@
 
     // Mensaje inicial
     if (chatHistory.length === 0) {
-      const hello = "¡Hola! ¿Qué te apetece buscar? Puedes pedir: 'bares abiertos ahora', 'museos accesibles', 'parques tranquilos' o un 'plan para hoy'.";
+      const hello = "¡Hola! ¿Qué te apetece buscar? Puedes pedir: 'bar con terraza abiertos ahora', 'museos accesibles', 'cafés tranquilos' o un 'plan para hoy'.";
       addBot(hello);
       chatHistory.push({ role: "assistant", content: hello });
       saveHistory();
@@ -235,7 +237,7 @@
     function addBot(text)  { addRow("assistant", text); }
     function scrollBottom(){ chatlog.scrollTop = chatlog.scrollHeight; }
 
-    // ===== Chips (genéricos) =====
+    // ===== Chips =====
     $$(".chip").forEach(b => b.addEventListener("click", () => {
       const q = normalizeQuery(b.dataset.q || "");
       input.value = q;
@@ -265,13 +267,12 @@
     });
 
     /* ==========================
-       Normalización semántica
-       (mapea términos del usuario a cabeceras reales de TIPOS_TUI)
+       Normalización semántica (mapea a cabeceras reales de TIPOS_TUI)
        ========================== */
     const CANON_MAP = [
-      // Términos genéricos -> cabeceras exactas
       { re: /\bmuseos?\b/i, canon: "Museos" },
       { re: /\bteatros?\b/i, canon: "Teatros" },
+      { re: /\biglesias?\b/i, canon: "Iglesias" },
       { re: /\bdiscotecas?\b/i, canon: "Discotecas" },
       { re: /\bbares?\b/i, canon: "Bares" },
       { re: /\bcaf(é|e)s?\b/i, canon: "Cafés" },
@@ -284,22 +285,25 @@
       { re: /\bspas?\b/i, canon: "Spas" },
       { re: /\bparques?\b/i, canon: "Parques" },
 
-      // Especializaciones SOLO si el usuario las escribe explícitamente
+      // combinados (head + subcategoría habitual)
       { re: /\b(restaurante\s+italiano)\b/i, canon: "Restaurantes restaurante italiano" },
       { re: /\b(restaurante\s+japon(é|e)s)\b/i, canon: "Restaurantes restaurante japonés" },
       { re: /\b(bar\s+de\s+vinos?)\b/i, canon: "Bares bar de vinos" },
+
+      // genéricos
+      { re: /\bgastronom(í|i)a(\s+y\s+)?ocio\s+nocturno\b/i, canon: "Bares" },
+      { re: /\bcompras?\b/i, canon: "Tiendas" },
+      { re: /\bnaturaleza\b/i, canon: "Parques" },
     ];
     const PLAN_HINTS = [
       /\b(hoy|esta\s+ma(ñ|n)ana|esta\s+tarde|esta\s+noche|este\s+finde|fin\s+de\s+semana)\b/i,
-      /\b(itinerario|ruta|tour|recorrido|agenda|plan(ificaci(ó|o)n)?)\b/i,
-      /\b(plan\s*semanal|semana)\b/i
+      /\b(itinerario|ruta|tour|recorrido|agenda|plan(ificaci(ó|o)n)?)\b/i
     ];
     function normalizeQuery(raw) {
       let q = raw.trim();
       CANON_MAP.forEach(({re, canon}) => { q = q.replace(re, canon); });
       return q.replace(/\s{2,}/g, " ").trim();
     }
-    function isWeekly(raw){ return /\b(plan\s*semanal|semana)\b/i.test(raw); }
     function shouldPlan(raw) { return PLAN_HINTS.some(re => re.test(raw)); }
 
     // Construye sufijo de filtros que el back entiende por texto
@@ -337,7 +341,7 @@
       else { userLat = userLon = null; geoStatus.textContent = "Ubicación: desactivada"; }
     });
 
-    // ===== “Pensando…” animado =====
+    // ===== “Pensando…” animado con JS =====
     function startDots(rowEl){
       const span = rowEl.querySelector(".thinking");
       if (!span) return;
@@ -358,17 +362,17 @@
 
       const qNorm = normalizeQuery(raw);
       const filters = buildFilterSuffix();
-      const finalQuery = filters ? `${qNorm} ${filters}` : qNorm;
-
+      const qWithFilters = filters ? `${qNorm} ${filters}` : qNorm;
       const usePlan = planHoy.checked || shouldPlan(raw);
-      const weekly = isWeekly(raw);
+      const pregunta = usePlan ? `plan para hoy: ${qWithFilters}` : qWithFilters;
 
-      chatHistory.push({ role: "user", content: finalQuery });
+      chatHistory.push({ role: "user", content: pregunta });
       saveHistory();
       addUser(raw + (filters ? `  ·  filtros: ${filters}` : ""));
       input.value = "";
       input.style.height = "auto";
 
+      // bubble “pensando…”
       const thinking = document.createElement("div");
       thinking.className = "row assistant";
       thinking.innerHTML = `<div class="bubble">Pensando<span class="thinking">.</span></div>`;
@@ -382,14 +386,12 @@
         const payload = {
           messages: chatHistory,
           start_time: startTimeEl.value || "09:30",
-          force_plan: !!usePlan,
-          weekly: !!weekly,
-          prefer_open: !!preferOpen.checked
         };
         if (useGeo.checked && userLat != null && userLon != null) {
           payload.start_lat = userLat;
           payload.start_lon = userLon;
         }
+        if (preferOpen.checked) payload.prefer_open = true;
 
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 30000);
@@ -453,10 +455,10 @@
       if (!isNoMatch(assistantText)) return;
       const soft = normalizeQuery(userRaw);
       const suggestions = [];
-      if (/piscina/i.test(soft)) suggestions.push("Gimnasios");
+      if (/piscina/i.test(soft)) suggestions.push("Gimnasios swimming_pool");
       if (/parque/i.test(soft)) suggestions.push("Parques");
       if (/muse/i.test(soft)) suggestions.push("Museos");
-      if (/bar/i.test(soft)) suggestions.push("Bares");
+      if (/bar/i.test(soft)) suggestions.push("Bares bar de vinos");
       if (/cafe|caf(e|é)/i.test(soft)) suggestions.push("Cafés");
 
       if (suggestions.length) {
