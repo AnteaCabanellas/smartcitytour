@@ -85,7 +85,7 @@
       <div id="chatlog" aria-live="polite" aria-atomic="false"></div>
 
       <div class="toolbar" style="padding:8px 8px 0;">
-        <!-- Chips genéricos: envían SOLO la cabecera de TIPOS_TUI -->
+        <!-- Chips genéricos -->
         <button type="button" class="chip" data-q="Museos">Museos</button>
         <button type="button" class="chip" data-q="Teatros">Teatros</button>
         <button type="button" class="chip" data-q="Discotecas">Discotecas</button>
@@ -99,7 +99,15 @@
         <button type="button" class="chip" data-q="Gimnasios">Gimnasios</button>
         <button type="button" class="chip" data-q="Spas">Spas</button>
 
-        <label class="toggle"><input type="checkbox" id="plan-hoy" /> Plan para hoy</label>
+        <!-- Selector de modo -->
+        <label class="toggle">Modo
+          <select id="mode" class="select" aria-label="Modo">
+            <option value="buscar">Buscar</option>
+            <option value="plan-dia">Plan (hoy)</option>
+            <option value="plan-semana">Plan semanal</option>
+          </select>
+        </label>
+
         <label class="toggle"><input type="checkbox" id="use-geo" /> Usar mi ubicación</label>
         <label class="toggle"><input type="checkbox" id="prefer-open" /> Abiertos ahora</label>
         <label class="toggle"><input type="checkbox" id="wheelchair" /> Accesible</label>
@@ -129,7 +137,7 @@
     const chatlog = $("#chatlog");
     const input = $("#user-input");
     const sendBtn = $("#send");
-    const planHoy = $("#plan-hoy");
+    const modeSel = $("#mode");
     const useGeo = $("#use-geo");
     const preferOpen = $("#prefer-open");
     const startTimeEl = $("#start-time");
@@ -158,14 +166,19 @@
       localStorage.setItem("chatHistory", JSON.stringify(chatHistory));
     }
 
-    // Persistencia de toggles/hora
+    // Persistencia de toggles/hora/modo
     const prefs = JSON.parse(localStorage.getItem("uiPrefs") || "{}");
-    ["plan-hoy","use-geo","prefer-open","wheelchair","reservas"].forEach(id=>{
+    ["use-geo","prefer-open","wheelchair","reservas"].forEach(id=>{
       if (id in prefs) $(`#${id}`).checked = !!prefs[id];
       $(`#${id}`).addEventListener("change", ()=>{
         prefs[id] = $(`#${id}`).checked;
         localStorage.setItem("uiPrefs", JSON.stringify(prefs));
       });
+    });
+    if (prefs.mode) modeSel.value = prefs.mode;
+    modeSel.addEventListener("change", ()=>{
+      prefs.mode = modeSel.value;
+      localStorage.setItem("uiPrefs", JSON.stringify(prefs));
     });
     if (prefs.startTime) startTimeEl.value = prefs.startTime;
     startTimeEl.addEventListener("change", ()=>{
@@ -175,7 +188,7 @@
 
     // Mensaje inicial
     if (chatHistory.length === 0) {
-      const hello = "¡Hola! ¿Qué te apetece buscar? Puedes pedir: 'bares abiertos ahora', 'museos accesibles', 'parques tranquilos' o un 'plan para hoy'.";
+      const hello = "¡Hola! ¿Qué te apetece buscar? Puedes pedir: 'bares abiertos ahora', 'museos accesibles', 'parques tranquilos' o generar un 'plan (hoy)' o 'plan semanal' desde el selector de Modo.";
       addBot(hello);
       chatHistory.push({ role: "assistant", content: hello });
       saveHistory();
@@ -244,9 +257,19 @@
 
     // ===== Limpiar / Exportar =====
     $("#clear").addEventListener("click", () => {
+      // conversación
       chatHistory = [];
       localStorage.removeItem("chatHistory");
       chatlog.innerHTML = "";
+
+      // reset UI
+      ["use-geo","prefer-open","wheelchair","reservas"].forEach(id => { $(`#${id}`).checked = false; });
+      modeSel.value = "buscar";
+      startTimeEl.value = "09:30";
+
+      // limpiar prefs persistidas
+      localStorage.removeItem("uiPrefs");
+
       const msg = "Conversación reiniciada. ¿Qué te gustaría buscar?";
       addBot(msg);
       chatHistory.push({ role: "assistant", content: msg });
@@ -266,10 +289,8 @@
 
     /* ==========================
        Normalización semántica
-       (mapea términos del usuario a cabeceras reales de TIPOS_TUI)
        ========================== */
     const CANON_MAP = [
-      // Términos genéricos -> cabeceras exactas
       { re: /\bmuseos?\b/i, canon: "Museos" },
       { re: /\bteatros?\b/i, canon: "Teatros" },
       { re: /\bdiscotecas?\b/i, canon: "Discotecas" },
@@ -283,24 +304,15 @@
       { re: /\bgimnasios?\b/i, canon: "Gimnasios" },
       { re: /\bspas?\b/i, canon: "Spas" },
       { re: /\bparques?\b/i, canon: "Parques" },
-
-      // Especializaciones SOLO si el usuario las escribe explícitamente
       { re: /\b(restaurante\s+italiano)\b/i, canon: "Restaurantes restaurante italiano" },
       { re: /\b(restaurante\s+japon(é|e)s)\b/i, canon: "Restaurantes restaurante japonés" },
       { re: /\b(bar\s+de\s+vinos?)\b/i, canon: "Bares bar de vinos" },
-    ];
-    const PLAN_HINTS = [
-      /\b(hoy|esta\s+ma(ñ|n)ana|esta\s+tarde|esta\s+noche|este\s+finde|fin\s+de\s+semana)\b/i,
-      /\b(itinerario|ruta|tour|recorrido|agenda|plan(ificaci(ó|o)n)?)\b/i,
-      /\b(plan\s*semanal|semana)\b/i
     ];
     function normalizeQuery(raw) {
       let q = raw.trim();
       CANON_MAP.forEach(({re, canon}) => { q = q.replace(re, canon); });
       return q.replace(/\s{2,}/g, " ").trim();
     }
-    function isWeekly(raw){ return /\b(plan\s*semanal|semana)\b/i.test(raw); }
-    function shouldPlan(raw) { return PLAN_HINTS.some(re => re.test(raw)); }
 
     // Construye sufijo de filtros que el back entiende por texto
     function buildFilterSuffix() {
@@ -360,12 +372,13 @@
       const filters = buildFilterSuffix();
       const finalQuery = filters ? `${qNorm} ${filters}` : qNorm;
 
-      const usePlan = planHoy.checked || shouldPlan(raw);
-      const weekly = isWeekly(raw);
+      const mode = modeSel.value; // 'buscar' | 'plan-dia' | 'plan-semana'
+      const usePlan = (mode !== "buscar");
+      const weekly  = (mode === "plan-semana");
 
       chatHistory.push({ role: "user", content: finalQuery });
       saveHistory();
-      addUser(raw + (filters ? `  ·  filtros: ${filters}` : ""));
+      addUser(raw + (filters ? `  ·  filtros: ${filters}` : `  ·  modo: ${mode}`));
       input.value = "";
       input.style.height = "auto";
 
