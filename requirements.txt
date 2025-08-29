@@ -1,0 +1,17 @@
+# --- Web / servidor ---
+Flask>=2.3
+gunicorn>=21.2
+
+# --- Datos / tiempos ---
+pandas>=2.2
+pytz>=2024.1
+python-dotenv>=1.0
+
+# --- OpenAI SDK (nuevo: "from openai import OpenAI") ---
+openai>=1.30.0,<2.0.0
+
+# --- Generación del mapa (scripts/make_map_madrid.py) ---
+folium>=0.15
+tqdm>=4.66
+geopy>=2.4
+ratelimit>=2.2
