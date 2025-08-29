@@ -4,42 +4,127 @@ import pandas as pd, folium
 from tqdm import tqdm
 from geopy.geocoders import Nominatim
 from ratelimit import limits, sleep_and_retry
+import os
 
 # ------------------------------------------------------------------
-CSV_FILE  = "data/BBDD_TUI.csv"
-HTML_OUT  = "static/mapa/mapa_madrid.html"
-CACHE_DB  = "geocode_cache.db"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # sube desde scripts/ al raíz
+
+CSV_FILE = os.path.join(ROOT, "data", "BBDD_TUI.csv")
+HTML_OUT = os.path.join(ROOT, "static", "mapa_madrid.html")
+CACHE_DB = os.path.join(ROOT, "data", "geocode_cache.db")
 
 CAT2EMOJI = {
-    "TRANSPORTE":                   "🚖",
-    "GASOLINERAS Y APARCAMIENTOS":  "⛽",
-    "ALOJAMIENTOS":                 "🏨",
-    "ESPACIOS DEPORTIVOS":          "⚽",
-    "LOCALES DE OCIO NOCTURNO":     "🍸",
-    "GOBIERNO":                     "🏛️",
-    "COMIDA Y BEBIDA":              "🍽️",
-    "ESPACIOS RELIGIOSOS":          "🛐",
-    "TIENDAS":                      "🛍️",
-    "EDUCACIÓN":                    "🎓",
-    "SALUD":                        "🏥",
-    "CULTURA OCIO Y NATURALEZA":    "🎭",
-    "OFICINAS DE TURISMO":          "ℹ️",
+    "TRANSPORTE":                       "🚖",
+    "GASOLINERAS Y APARCAMIENTOS":      "⛽",
+    "ALOJAMIENTOS":                     "🏨",
+    "ESPACIOS DEPORTIVOS":              "⚽",
+    "OCIO NOCTURNO":                    "🍸",
+    "ADMINISTRACIÓN PÚBLICA Y SEGURIDAD":"🏛️",
+    "COMIDA Y BEBIDA":                  "🍽️",
+    "ESPACIOS RELIGIOSOS":              "🛐",
+    "TIENDAS DE COMIDA":                "🛒",
+    "TIENDAS":                          "🛍️",
+    "MODA Y BELLEZA":                   "💄",
+    "EDUCACIÓN":                        "🎓",
+    "SALUD Y MEDICINA":                 "🏥",
+    "CULTURA, ARTE Y NATURALEZA":       "🎭",
+    "OCIO":                              "🎡",
+    "EVENTOS Y CELEBRACIONES":          "🎉",
+    "SERVICIOS":                        "🛠️",
 }
 
+
 grupos = {
-    "TRANSPORTE": ["Aeropuertos","Estaciones De Autobús","Estaciones De Metro","Estaciones De Tren"],
-    "GASOLINERAS Y APARCAMIENTOS": ["Aparcamientos","Gasolineras"],
-    "ALOJAMIENTOS": ["Albergues","Apartamentos Turísticos","Campings","Hostales","Hoteles"],
-    "ESPACIOS DEPORTIVOS": ["Campos De Fútbol","Campos De Golf","Gimnasios","Pistas De Tenis","Polideportivos","Senderismo","Piscinas","Spas"],
-    "LOCALES DE OCIO NOCTURNO": ["Casinos","Cervecerías","Coctelerías","Discotecas"],
-    "GOBIERNO": ["Ayuntamientos","Consulados","Embajadas"],
-    "COMIDA Y BEBIDA": ["Bares","Cafés","Cervecerías","Panaderías","Mercados","Restaurante","Supermercados","Tapas","Vegano","Vegetariano"],
-    "ESPACIOS RELIGIOSOS": ["Basílicas","Catedrales","Conventos","Convento","Ermitas","Iglesias","Mezquitas","Monasterios","Templos Budistas","Templos Hindúes","Conventos"],
-    "TIENDAS": ["Centros Comerciales","Joyerías","Librerías","Mercados","Perfumerías","Tiendas","Tiendas De Ropa","Zapaterías"],
-    "EDUCACIÓN": ["Bibliotecas","Colegios","Universidades"],
-    "SALUD": ["Clínicas","Farmacias","Hospitales"],
-    "CULTURA OCIO Y NATURALEZA": ["Centros Culturales","Cine","Galerías De Arte","Museos","Teatros","Zoológicos","Jardines","Montañas","Parques","Parques Acuáticos","Parques De Atracciones","Parques Naturales"],
-    "OFICINAS DE TURISMO": ["Oficinas De Turismo"],
+    "TRANSPORTE": [
+        "Aeropuertos", "Estaciones De Autobús", "Estaciones De Metro", "Estaciones De Tren",
+        "Estación De Transporte", "Heliopuerto", "Parada De Taxis", "Pista De Aterrizaje"
+    ],
+    "GASOLINERAS Y APARCAMIENTOS": [
+        "Aparcamientos", "Gasolineras"
+    ],
+    "ALOJAMIENTOS": [
+        "Alojamiento", "B&B (Cama Y Desayuno)", "Cabaña De Camping", "Cabañas", "Campings",
+        "Casa De Huéspedes", "Complejo Residencial", "Edificio De Apartamentos",
+        "Habitación De Huéspedes Privada", "Hostal", "Hotel De Larga Estancia",
+        "Hotel Resort", "Hoteles", "Posada", "Área Para Autocaravanas", "Moteles"
+    ],
+    "ESPACIOS DEPORTIVOS": [
+        "Campos De Golf", "Centro De Fitness", "Club Deportivo", "Coaching Deportivo",
+        "Complejo Deportivo", "Estudio De Yoga", "Gimnasios", "Instalación Deportiva",
+        "Piscinas", "Saunas", "Zona De Senderismo"
+    ],
+    "OCIO NOCTURNO": [
+        "Discotecas", "Pub"
+    ],
+    "ADMINISTRACIÓN PÚBLICA Y SEGURIDAD": [
+        "Ayuntamientos", "Oficina De Gobierno Local", "Oficina Gubernamental", "Policía"
+    ],
+    "COMIDA Y BEBIDA": [
+        "Asador", "Bar De Vinos", "Bar Y Parrilla", "Bares", "Bocatería", "Cafetería Americana",
+        "Cafés", "Café Para Perros", "Chocolatería", "Comida", "Comida Para Llevar",
+        "Hamburguesería", "Heladerías", "Reparto De Comida", "Restaurante Africano",
+        "Restaurante Asiático", "Restaurante Brasileño", "Restaurante Bufé", "Restaurante Chino",
+        "Restaurante Coreano", "Restaurante De Alta Cocina", "Restaurante De Barbacoa",
+        "Restaurante De Brunch", "Restaurante De Comida Rápida", "Restaurante De Desayunos",
+        "Restaurante De Oriente Medio", "Restaurante De Ramen", "Restaurante De Sushi",
+        "Restaurante Español", "Restaurante Estadounidense", "Restaurante Francés",
+        "Restaurante Griego", "Restaurante Indio", "Restaurante Italiano", "Restaurante Japonés",
+        "Restaurante Libanés", "Restaurante Mediterráneo", "Restaurante Mexicano",
+        "Restaurante Tailandés", "Restaurante Turco", "Restaurante Vegano",
+        "Restaurante Vegetariano", "Restaurante Vietnamita", "Restaurantes",
+        "Panaderías", "Pastelerías", "Patio De Comidas", "Pizzería", "Marisquerías", "Salón De Té"
+    ],
+    "ESPACIOS RELIGIOSOS": [
+        "Iglesias", "Lugar De Culto", "Mezquitas", "Sinagogas"
+    ],
+    "TIENDAS DE COMIDA": [
+        "Carnicerías", "Charcuterías", "Mercados", "Mayorista", "Supermercado Asiático", "Supermercados"
+    ],
+    "TIENDAS": [
+        "Tienda De Alimentación", "Tienda De Artículos Para El Hogar", "Tienda De Açaí",
+        "Tienda De Bagels", "Tienda De Bicicletas", "Tienda De Bricolaje",
+        "Tienda De Comestibles", "Tienda De Conveniencia", "Tienda De Deportes",
+        "Tienda De Descuentos", "Tienda De Donuts", "Tienda De Dulces", "Tienda De Electrónica",
+        "Tienda De Licores", "Tienda De Mascotas", "Tienda De Muebles", "Tienda De Móviles",
+        "Tienda De Regalos", "Tienda De Repuestos", "Tienda De Ropa", "Tienda De Zumos",
+        "Tiendas", "Zapaterías", "Gran Almacén", "Floristerías", "Confitería",
+        "Ferretería", "Librerías"  
+    ],
+    "MODA Y BELLEZA": [
+        "Barbería", "Cuidado Del Cabello", "Esteticista", "Estudio De Tatuajes Y Piercings",
+        "Peluquerías", "Salón De Belleza", "Salón De Uñas", "Spas", "Sastre"
+    ],
+    "EDUCACIÓN": [
+        "Bibliotecas", "Colegios", "Escuela Primaria", "Instituto", "Universidades", "Preescolar"
+    ],
+    "SALUD Y MEDICINA": [
+        "Salud", "Clínica Dental", "Clínica Dermatológica", "Clínicas", "Dentistas", "Droguerías",
+        "Farmacias", "Hospitales", "Fisioterapeuta", "Masajes", "Laboratorio Médico",
+        "Médico", "Quiropráctico", "Centro De Bienestar", "Veterinaria"
+    ],
+    "CULTURA, ARTE Y NATURALEZA": [
+        "Centro Cultural", "Lugar De Interés", "Lugar Emblemático Cultural", "Escultura", "Monumento",
+        "Museos", "Plaza", "Sitio Histórico", "Teatro De Artes Escénicas", "Teatros",
+        "Galería De Arte", "Estudio De Arte", "Acuarios", "Jardín", "Jardín Botánico",
+        "Granjas", "Zoológicos"
+    ],
+    "OCIO": [
+        "Cine", "Club De Comedia", "Centro De Ocio",
+        "Boleras", "Montaña Rusa", "Parque Acuático", "Parque Estatal", "Parque Infantil",
+        "Parque Para Perros", "Parques", "Parques De Atracciones", "Salón Recreativo",
+        "Atracción Turística"
+    ],
+    "EVENTOS Y CELEBRACIONES": [
+        "Sala De Baile", "Sala De Conciertos", "Sala De Eventos", "Salón De Bodas", "Recinto", "Servicio De Catering"
+    ],
+    "SERVICIOS": [
+        "Cerrajero", "Electricista", "Fontanero", "Empresa De Mudanzas", "Empresa De Pintura",
+        "Inmobiliarias", "Agencia De Cuidado Infantil", "Agencia De Excursiones", "Agencia De Viajes",
+        "Almacenaje", "Aseguradora", "Consultoras", "Contratista General", "Mensajería",
+        "Oficina Corporativa", "Operador De Telecomunicaciones", "Organizador De Campamentos De Verano",
+        "Servicios Financieros", "Tanatorios", "Taller Mecánico", "Concesionario",
+        "Abogado", "Campamento Infantil"
+    ]
 }
 
 # Categoría de respaldo
@@ -319,6 +404,7 @@ js = """
 .download-icon { cursor:pointer; font-size:18px; user-select:none; margin-left:auto; padding:2px 6px; border-radius:4px; transition:background .15s ease; }
 .download-icon:hover { background:#e0e0ea; }
 .leaflet-div-icon.emoji-pin{ background: transparent; border: none; font-size: 24px; line-height: 1; }
+.leaflet-div-icon.user-pin { background: transparent; border: none; font-size: 28px; line-height: 1; }
 </style>
 
 <script id="data-json" type="application/json">""" + data_json + """</script>
@@ -943,6 +1029,57 @@ withMap((map)=>{
   panelToggle.addEventListener("click", ()=>{ collapsed = !collapsed; filterBody.style.display = collapsed ? "none" : "flex"; panelToggle.innerHTML = collapsed ? "&#9654;" : "&#9660;"; });
 
   applyFilters();
+  // === Pin de la ubicación del usuario (📌) ===
+  const userLayer = L.layerGroup().addTo(map);
+
+  function putUserPin(lat, lon, accuracy){
+    userLayer.clearLayers();
+    const icon = L.divIcon({
+      className: "leaflet-div-icon user-pin",
+      html: "📌",
+      iconSize: [28, 28],
+      iconAnchor: [14, 28]
+    });
+    L.marker([lat, lon], { icon, zIndexOffset: 1000 })
+      .addTo(userLayer)
+      .bindPopup("Estás aquí");
+
+    if (accuracy && !Number.isNaN(accuracy)) {
+      L.circle([lat, lon], { radius: accuracy }).addTo(userLayer);
+    }
+  }
+
+  // 1) Intenta leer las coords que expone Flask (app.py) en /coords
+  fetch("/coords")
+    .then(r => r.json())
+    .then(c => {
+      if (c && typeof c.lat === "number" && typeof c.lon === "number") {
+        putUserPin(c.lat, c.lon, null);
+        map.setView([c.lat, c.lon], 14);
+      }
+    })
+    .catch(() => { /* sin ruido */ });
+
+  // 2) Como respaldo, mira si el front guardó coords en localStorage
+  try {
+    const s = localStorage.getItem("client_coords"); // p.ej. {lat, lon, accuracy}
+    if (s) {
+      const o = JSON.parse(s);
+      if (o.lat && o.lon) putUserPin(+o.lat, +o.lon, o.accuracy);
+    }
+  } catch(e){}
+
+  // 3) Último fallback: geolocalización del navegador
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        const { latitude, longitude, accuracy } = pos.coords;
+        putUserPin(latitude, longitude, accuracy);
+      },
+      () => {},
+      { enableHighAccuracy: true, maximumAge: 30000, timeout: 5000 }
+    );
+  }
 });
 </script>
 """
