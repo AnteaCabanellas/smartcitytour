@@ -1,0 +1,9 @@
+Abres anaconda prompt y luego vas ejecutando lú‹ea por lú‹ea:
+conda create -n turismo python=3.11
+conda activate turismo
+python -m pip install --upgrade pip
+cd ruta
+pip install -r requirements.txt
+flask run
+
+
