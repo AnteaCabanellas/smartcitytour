@@ -963,5 +963,10 @@ def widget():
 def health():
     return jsonify({"status":"ok", "rows": int(len(df))})
 
+# Puertos a usar
 if __name__ == "__main__":
-    app.run(debug=True)
+    import os
+    port = int(os.environ.get("PORT", 5000))
+    # En local: python app.py -> usará 5000 (http://localhost:5000)
+    # En Render: usará el PORT que Render inyecta automáticamente
+    app.run(host="0.0.0.0", port=port, debug=False)
