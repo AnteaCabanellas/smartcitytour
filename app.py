@@ -311,7 +311,7 @@ def is_open_now(slots, now_dt=None):
 # ======================
 # Carga y limpieza CSV
 # ======================
-CSV_PATH = "data/dataBBDD_TUI.csv"
+CSV_PATH = "data/BBDD_TUI.csv"
 
 def load_and_clean_df(csv_path=CSV_PATH) -> pd.DataFrame:
     try:
