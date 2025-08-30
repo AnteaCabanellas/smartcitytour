@@ -10,7 +10,7 @@ import os
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # sube desde scripts/ al raíz
 
 CSV_FILE = os.path.join(ROOT, "data", "BBDD_TUI.csv")
-HTML_OUT = os.path.join(ROOT, "static", "mapa_madrid.html")
+HTML_OUT  = os.path.join(ROOT, "static", "mapa", "mapa_madrid.html")
 CACHE_DB = os.path.join(ROOT, "data", "geocode_cache.db")
 
 CAT2EMOJI = {
