@@ -3,7 +3,7 @@ Flask>=2.3
 gunicorn>=21.2
 
 # --- Datos / tiempos ---
-pandas>=2.2
+pandas==2.0.3    # También vale "pandas>=2.2"
 pytz>=2024.1
 python-dotenv>=1.0
 
