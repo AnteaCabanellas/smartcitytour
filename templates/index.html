@@ -16,8 +16,9 @@
     /* Mapa */
     #mapa {
       width: 100%;
-      height: 100vh;
+      height: calc(100vh - var(--footer-h));
       border: none;
+      display: block;
     }
 
     /* Botón flotante del chat */
@@ -25,11 +26,12 @@
       --sct-blue:  #2563eb;
       --sct-blue2: #3b82f6;
       --sct-green: #22c55e;
+      --footer-h: 56px;
     }
     #sct-launcher {
       position: fixed;
       right: 24px;
-      bottom: 24px;
+      bottom: calc(24px + var(--footer-h));
       z-index: 99998;
       width: 64px;
       height: 64px;
@@ -72,7 +74,7 @@
     #sct-frame {
       position: fixed;
       right: 24px;
-      bottom: 104px;
+      bottom: calc(104px + var(--footer-h));
       z-index: 99999;
       width: 860px;
       height: 82vh;
@@ -89,13 +91,50 @@
         right: 4vw;
         width: auto;
         height: 82vh;
-        bottom: 96px;
+        bottom: calc(96px + var(--footer-h));
       }
     }
     @media (prefers-reduced-motion: reduce){
       #sct-launcher{ transition:none }
       #sct-launcher.rebote{ animation:none }
     }
+    /* Banner fijo inferior */
+    .sct-footer {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: var(--footer-h);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      background: rgba(255, 255, 255, 0.92);
+      backdrop-filter: blur(6px);
+      border-top: 1px solid rgba(0,0,0,0.08);
+      box-shadow: 0 -4px 16px rgba(0,0,0,0.06);
+      z-index: 99997; /* por debajo del botón (99998) y del frame (99999) */
+      padding: 8px 12px;
+    }
+    
+    .sct-footer__logo {
+      height: 28px;  /* ajusta según tu imagen */
+      width: auto;
+      display: block;
+    }
+
+    .sct-footer__text {
+      font: 600 14px/1.2 system-ui, -apple-system, Segoe UI, Roboto, Inter, sans-serif;
+      color: #1f2937; /* gris 800 */
+      white-space: nowrap;
+    }
+
+    @media (max-width: 480px) {
+      :root { --footer-h: 50px; }
+      .sct-footer__text { font-size: 13px; }
+      .sct-footer__logo { height: 24px; }
+    }
+
   </style>
 </head>
 <body>
@@ -152,5 +191,17 @@
       btn.addEventListener('animationend', () => btn.classList.remove('rebote'), { once:true });
     });
   </script>
+
+  <footer class="sct-footer" role="contentinfo" aria-label="Marca">
+    <img
+      class="sct-footer__logo"
+      src="{{ url_for('static', filename='img/TUI_logo.png', v=build_version) }}"
+      alt="TUI"
+      decoding="async"
+      loading="lazy"
+    />
+    <span class="sct-footer__text">Smart City Tour – Madrid</span>
+  </footer>
+  
 </body>
 </html>
