@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 Instrucciones para el despliegue de la aplicación desde 0
 
 Abres anaconda prompt y luego vas ejecutando línea por línea:
@@ -30,3 +31,37 @@ git commit -m “escribimos_que_hemos_cambiado”
 git push origina nombre_rama
 
 
+=======
+Instrucciones para el despliegue de la aplicación desde 0
+
+Abres anaconda prompt y luego vas ejecutando línea por línea:
+conda create -n turismo python=3.11
+conda activate turismo
+python -m pip install --upgrade pip
+cd ruta
+pip install -r requirements.txt
+flask run
+
+
+Instrucciones para hacer cambios 
+
+conda activate turismo
+cd ruta\smartcitytour\scripts
+python mapa_madrid.py
+
+
+Instrucciones para subir cambios al git 
+
+cd ruta_donde_queramos_guardar_la_carpeta
+git clone https://github.com/AnteaCabanellas/smartcitytour.git
+“LUEGO MODIFICAMOS LO QUE SEA DE LA CARPETA”
+cd smartcitytour
+git checkout -b nombre_rama
+git status
+git add -A
+git status
+git commit -m “escribimos_que_hemos_cambiado”
+git push origina nombre_rama
+
+
+>>>>>>> 8c40fb504763b2f7189769ac4939274c74d4ad5c
