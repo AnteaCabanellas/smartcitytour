@@ -14,25 +14,24 @@ HTML_OUT  = os.path.join(ROOT, "static", "mapa", "mapa_madrid.html")
 CACHE_DB = os.path.join(ROOT, "data", "geocode_cache.db")
 
 CAT2EMOJI = {
-    "TRANSPORTE":                       "🚖",
-    "GASOLINERAS Y APARCAMIENTOS":      "⛽",
-    "ALOJAMIENTOS":                     "🏨",
-    "ESPACIOS DEPORTIVOS":              "⚽",
-    "OCIO NOCTURNO":                    "🍸",
+    "TRANSPORTE":                        "🚖",
+    "GASOLINERAS Y APARCAMIENTOS":       "⛽",
+    "ALOJAMIENTOS":                      "🏨",
+    "ESPACIOS DEPORTIVOS":               "⚽",
+    "OCIO NOCTURNO":                     "🍸",
     "ADMINISTRACIÓN PÚBLICA Y SEGURIDAD":"🏛️",
-    "COMIDA Y BEBIDA":                  "🍽️",
-    "ESPACIOS RELIGIOSOS":              "🛐",
-    "TIENDAS DE COMIDA":                "🛒",
-    "TIENDAS":                          "🛍️",
-    "MODA Y BELLEZA":                   "💄",
-    "EDUCACIÓN":                        "🎓",
-    "SALUD Y MEDICINA":                 "🏥",
-    "CULTURA, ARTE Y NATURALEZA":       "🎭",
+    "COMIDA Y BEBIDA":                   "🍽️",
+    "ESPACIOS RELIGIOSOS":               "🛐",
+    "TIENDAS DE COMIDA":                 "🛒",
+    "TIENDAS":                           "🛍️",
+    "MODA Y BELLEZA":                    "💄",
+    "EDUCACIÓN":                         "🎓",
+    "SALUD Y MEDICINA":                  "🏥",
+    "CULTURA, ARTE Y NATURALEZA":        "🎭",
     "OCIO":                              "🎡",
-    "EVENTOS Y CELEBRACIONES":          "🎉",
-    "SERVICIOS":                        "🛠️",
+    "EVENTOS Y CELEBRACIONES":           "🎉",
+    "SERVICIOS":                         "🛠️",
 }
-
 
 grupos = {
     "TRANSPORTE": [
@@ -88,7 +87,7 @@ grupos = {
         "Tienda De Licores", "Tienda De Mascotas", "Tienda De Muebles", "Tienda De Móviles",
         "Tienda De Regalos", "Tienda De Repuestos", "Tienda De Ropa", "Tienda De Zumos",
         "Tiendas", "Zapaterías", "Gran Almacén", "Floristerías", "Confitería",
-        "Ferretería", "Librerías"  
+        "Ferretería", "Librerías"
     ],
     "MODA Y BELLEZA": [
         "Barbería", "Cuidado Del Cabello", "Esteticista", "Estudio De Tatuajes Y Piercings",
@@ -131,7 +130,7 @@ grupos = {
 if "OTROS" not in grupos:
     grupos["OTROS"] = []
 if "OTROS" not in CAT2EMOJI:
-    CAT2EMOJI["OTROS"] = "📌"
+    CAT2EMOJI["OTROS"] = "📍"
 
 # ------------------------------------------------------------------
 # CARGA CSV
@@ -170,16 +169,15 @@ df["LON"] = lon_num
 # ------------------------------------------------------------------
 # RATING_TUI y TOTAL_VALORACIONES_TUI (conversión a numérico)
 rating_raw = safe_get_series("RATING_TUI", "")
-# Soporta "4,2" -> 4.2 y extrae el número
 rating_num = pd.to_numeric(
     rating_raw.str.replace(",", ".", regex=False).str.extract(r'(-?\d+(?:\.\d+)?)')[0],
     errors="coerce"
 )
-df["RATING"] = rating_num  # float
+df["RATING"] = rating_num
 
 reviews_raw = safe_get_series("TOTAL_VALORACIONES_TUI", "")
 reviews_num = pd.to_numeric(reviews_raw.str.extract(r'(\d+)')[0], errors="coerce")
-df["TOTAL_REVIEWS"] = reviews_num  # int (NaN si falta)
+df["TOTAL_REVIEWS"] = reviews_num
 
 # ------------------------------------------------------------------
 # Geocoder (sólo si faltan coords)
@@ -271,7 +269,7 @@ for _, r in df.iterrows():
                     continue
                 break
 
-    # CATEGORÍAS desde la columna
+    # CATEGORÍAS desde la columna (si hay)
     cats_src = split_normalize(r.get("CATEGORIA_TUI", ""))
     cats_from_col = []
     for c in cats_src:
@@ -325,8 +323,8 @@ for _, r in df.iterrows():
         "lat": float(r["LAT"]),
         "lon": float(r["LON"]),
         "address": safe_get(r.get("DIRECCION_TUI", "") or r.get("DIRECCION", ""), f"{float(r['LAT']):.5f}, {float(r['LON']):.5f}"),
-        "categories": categories,
-        "subcategories": subcats_display,
+        "categories": categories,           # se usa para agrupar casillas
+        "subcategories": subcats_display,   # TIPOS_TUI LIMPIOS → filtrado real por tipos
         "email": safe_get(r.get("EMAIL", "")),
         "phone": safe_get(r.get("TELEFONO", "")),
         "website":   safe_get(r.get("CONTENT_URL", "") or r.get("WEBSITE", "")),
@@ -336,9 +334,8 @@ for _, r in df.iterrows():
         "estado_negocio": val_estado,
         "reserva_posible": val_reserva,
         "accesibilidad_silla_ruedas": val_acces,
-        # Nuevos campos
-        "rating": rating_out,                 # float o null
-        "total_reviews": reviews_out,         # int o null
+        "rating": rating_out,
+        "total_reviews": reviews_out,
     })
 
 # cat2subs = subtipos realmente presentes por categoría (+ "(sin subcategoría)" donde haga falta)
@@ -373,7 +370,8 @@ unique_filters = {
     "reserva":   unique_values("reserva_posible"),
 }
 
-data_json           = safe_json_dump_text(records)
+# 2.a — NO embebemos el mega-JSON de 30k registros
+data_json           = "[]"
 cat2subs_json       = safe_json_dump_text(cat2subs)
 emoji_json          = safe_json_dump_text(CAT2EMOJI)
 unique_filters_json = safe_json_dump_text(unique_filters)
@@ -437,6 +435,14 @@ let favoritesLayer = L.layerGroup();
 const allMarkers = [];
 const scheduleCache = new Map();
 
+/* === Normalizador JS equivalente al de Python === */
+function normJS(s){
+  s = (s || "").toString().trim();
+  s = s.normalize("NFD").replace(/[\\u0300-\\u036f]/g, "");
+  s = s.replace(/\\s+/g, " ").trim();
+  return s.toLowerCase();
+}
+
 /* --- helpers de horario --- */
 const DAY_INDEX = { "monday":0,"tuesday":1,"wednesday":2,"thursday":3,"friday":4,"saturday":5,"sunday":6,
   "lunes":0,"martes":1,"miércoles":2,"miercoles":2,"jueves":3,"viernes":4,"sábado":5,"sabado":5,"domingo":6 };
@@ -482,10 +488,7 @@ function parseSchedule(horario){
 }
 function isOpenAtSchedule(sched, dow, minute){ return (sched[dow]||[]).some(([s,e])=>minute>=s && minute<e); }
 
-/* --- util: sets --- */
-function setHasAny(setA, arr){ for(const x of arr){ if(setA.has(x)) return true; } return false; }
-
-/* --- Emoji dinámico --- */
+/* --- Emoji dinámico (no usado para cambiar) --- */
 function getEmojiForRec(catToSubs){
   const mains = Object.keys(catToSubs);
   for (const main of mains){
@@ -526,51 +529,57 @@ withMap((map)=>{
   });
   map.addControl(new FilterControl());
 
-  for (const rec of rawData) {
-    const mains = (rec.categories && rec.categories.length) ? rec.categories : ["OTROS"];
-    const allSubs = (rec.subcategories && rec.subcategories.length) ? rec.subcategories : [];
+  // =========================
+  // 2.b — CARGADOR INCREMENTAL
+  // =========================
+  const loaded = new Set();
+  const recById = new Map();
+  const liveLayer = L.layerGroup().addTo(map);
 
+  function createMarker(rec){
+    const mains = (rec.categories || []);
+    const subs  = (rec.subcategories || []);
+
+    // 👉 Set con TODOS los tipos del registro (normalizados) para filtrado por TIPOS_TUI
+    const typesNormSet = new Set((subs || []).map(normJS));
+
+    // 👉 Mapa por categoría a subtipos propios del registro; si no hay, "(sin subcategoría)"
     const catToSubs = {};
-    for (const main of mains){
-      const validSubsForMain = (cat2subs[main]||[]);
-      let subsForMain = allSubs.filter(s => validSubsForMain.includes(s));
-      if (subsForMain.length === 0){
-        if (validSubsForMain.includes("(sin subcategoría)")) subsForMain = ["(sin subcategoría)"];
+    const catsEmpty = new Set();
+    for (const m of mains) {
+      const globalSubsOfCat = cat2subs[m] || [];
+      const recSubsInCat = (subs || []).filter(s => globalSubsOfCat.includes(s));
+      if (recSubsInCat.length) {
+        catToSubs[m] = recSubsInCat;
+      } else {
+        catToSubs[m] = ["(sin subcategoría)"];
+        catsEmpty.add(m);
       }
-      if (subsForMain.length === 0 && main==="OTROS"){ subsForMain = ["(sin subcategoría)"]; }
-      if (subsForMain.length > 0) catToSubs[main] = subsForMain;
     }
 
-    let emoji = getEmojiForRec(catToSubs);
-
-    const isFav = favorites.has(rec.id);
-    const favSymbol = isFav ? "♥" : "♡";
+    const emoji = cat2emoji[mains[0]] || "📍";
 
     const websiteHTML = rec.website ? `<a href="${rec.website}" target="_blank" rel="noopener noreferrer">Abrir sitio</a>` : '—';
     const gmapsHTML   = rec.gmaps_url ? `<a href="${rec.gmaps_url}" target="_blank" rel="noopener noreferrer">Ver en Google Maps</a>` : '—';
-
-    const catsHTML = mains.join(", ");
-    const subsHTML = allSubs.length ? allSubs.join(", ") : "(sin subcategoría)";
-
-    const ratingDisp = (rec.rating !== null && rec.rating !== undefined && !Number.isNaN(rec.rating)) ? rec.rating : '—';
-    const reviewsDisp = (rec.total_reviews !== null && rec.total_reviews !== undefined && !Number.isNaN(rec.total_reviews)) ? rec.total_reviews : '—';
+    const ratingDisp  = (rec.rating!=null && !Number.isNaN(rec.rating)) ? rec.rating : '—';
+    const reviewsDisp = (rec.total_reviews!=null && !Number.isNaN(rec.total_reviews)) ? rec.total_reviews : '—';
 
     const popupContent = `
       <div style="font-size:14px; max-width:850px; max-height:700px; overflow:auto">
-        <b>${rec.name}</b>&nbsp;&nbsp;<span class="fav-heart" data-id="${rec.id}">${favSymbol}</span><br>
-        <small>${rec.address}</small><br><br>
-        ${rec.description || ""}<br><br>
-        <strong>Categorías:</strong> ${catsHTML}<br>
-        <strong>Tipos:</strong> ${subsHTML}<br>
+        <b>${rec.name}</b>&nbsp;&nbsp;<span class="fav-heart" data-id="${rec.id}">♡</span><br>
+        <small>${rec.address||""}</small><br><br>
+        ${rec.description||""}<br><br>
+        <strong>Categorías:</strong> ${mains.join(", ")}<br>
+        <strong>Tipos:</strong> ${subs.length? subs.join(", ") : "(sin subcategoría)"}<br>
         <strong>Sitio web:</strong> ${websiteHTML}<br>
         <strong>Google Maps:</strong> ${gmapsHTML}<br>
         <strong>Teléfono:</strong> ${rec.phone || '—'}<br>
-        <strong>Precio:</strong> ${rec.precio}<br>
+        <strong>Precio:</strong> ${rec.precio || '—'}<br>
         <strong>Valorado:</strong> ${ratingDisp}<br>
         <strong>Número de reseñas:</strong> ${reviewsDisp}<br>
-        <strong>Estado de negocio:</strong> ${rec.estado_negocio}<br>
-        <strong>Reserva posible:</strong> ${rec.reserva_posible}<br>
-        <strong>Accesibilidad Silla de ruedas:</strong> ${rec.accesibilidad_silla_ruedas}<br>
+        <strong>Estado de negocio:</strong> ${rec.estado_negocio || '—'}<br>
+        <strong>Reserva posible:</strong> ${rec.reserva_posible || '—'}<br>
+        <strong>Accesibilidad Silla de ruedas:</strong> ${rec.accesibilidad_silla_ruedas || '—'}<br>
         <strong>Horario:</strong> ${rec.horario || '—'}<br>
       </div>`;
 
@@ -579,25 +588,66 @@ withMap((map)=>{
 
     marker._recId = rec.id;
     marker._rec   = rec;
-    marker._catToSubs = catToSubs;
-    marker._mainOrder = Object.keys(catToSubs);
+
+    // ➕ campos nuevos para el filtrado por TIPOS_TUI
+    marker._typesNorm = typesNormSet; // Set<string> normalizados de TIPOS_TUI del registro
+    marker._catToSubs = catToSubs;    // { mainCat: ["sub1", ...] | ["(sin subcategoría)"], ... }
+    marker._catsEmpty = catsEmpty;    // Set<string> categorías del registro sin subtipos
+
     marker._currentEmoji = emoji;
     marker._updateEmoji = function(){
-      const e = getEmojiForRec(marker._catToSubs);
+      const e = cat2emoji[mains[0]] || "📍"; // mantenemos emoji de 1ª categoría
       if (e !== marker._currentEmoji){
         marker._currentEmoji = e;
-        marker.setIcon(L.divIcon({ className: "leaflet-div-icon emoji-pin", html: e, iconSize: [24,24], iconAnchor: [12,12] }));
+        marker.setIcon(L.divIcon({ className:"leaflet-div-icon emoji-pin", html:e, iconSize:[24,24], iconAnchor:[12,12] }));
       }
     };
 
-    marker.addTo(map);
+    marker.addTo(liveLayer);
     allMarkers.push(marker);
+    recById.set(rec.id, rec);
 
-    if (isFav) favoritesLayer.addLayer(marker);
+    if (favorites.has(rec.id)) { favoritesLayer.addLayer(marker); }
   }
 
-  favoritesLayer.addTo(map);
+  async function fetchAndRender(){
+    const b = map.getBounds();
+    const url = `/api/poi?south=${b.getSouth()}&west=${b.getWest()}&north=${b.getNorth()}&east=${b.getEast()}&zoom=${map.getZoom()}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    for (const rec of data){
+      if (!loaded.has(rec.id)){
+        loaded.add(rec.id);
+        createMarker(rec);
+      }
+    }
+    applyFilters();
+  }
 
+  function debounce(fn, ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; }
+  map.on('moveend', debounce(fetchAndRender, 250));
+  fetchAndRender();
+
+  window.__exportFavorites = function(){
+    if(favorites.size===0) return alert("No has marcado favoritos todavía.");
+    const headers = ["id","name","address","lat","lon","categories","subcategories","email","phone","website","gmaps_url","horario","description","rating","total_reviews"];
+    const rows = [];
+    for (const id of favorites) {
+      const r = recById.get(id); if(!r) continue;
+      const row = headers.map(h=>{
+        let v = r[h];
+        if(h==="categories") v=(r.categories||[]).join("|");
+        if(h==="subcategories") v=(r.subcategories||[]).join("|");
+        return `"` + String(v ?? "").replace(/"/g,'""') + `"`; 
+      }).join(";");
+      rows.push(row);
+    }
+    const csv = [headers.join(";"), ...rows].join("\\r\\n");
+    const blob = new Blob([csv], {type:"text/csv;charset=utf-8"});
+    const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="favoritos.csv"; a.click();
+  }
+
+  // Eventos de favoritos
   map.on('popupopen', (e)=>{
     const pop = e.popup && e.popup.getElement(); if(!pop) return;
     const heart = pop.querySelector('.fav-heart');
@@ -617,25 +667,6 @@ withMap((map)=>{
     }
   });
 
-  function exportFavorites(){
-    if(favorites.size===0) return alert("No has marcado favoritos todavía.");
-    const headers = ["id","name","address","lat","lon","categories","subcategories","email","phone","website","gmaps_url","horario","description","rating","total_reviews"];
-    const rows = [];
-    for (const id of favorites) {
-      const r = rawData.find(x=>x.id===id); if(!r) continue;
-      const row = headers.map(h=> {
-        let val = r[h];
-        if(h==="categories") val=(r.categories||[]).join("|");
-        if(h==="subcategories") val=(r.subcategories||[]).join("|");
-        return `"` + String(val ?? "").replace(/"/g,'""') + `"`; }).join(";");
-      rows.push(row);
-    }
-    const csv = [headers.join(";"), ...rows].join("\\r\\n");
-    const blob = new Blob([csv], {type:"text/csv;charset=utf-8"});
-    const url = URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download="favoritos.csv";
-    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-  }
-
   const container = document.getElementById("categories-container");
 
   // FAVORITOS
@@ -649,7 +680,7 @@ withMap((map)=>{
   favTitleW.appendChild(favChk); favTitleW.appendChild(favEmoji); favTitleW.appendChild(favName); favTitleW.appendChild(downloadIcon);
   favHeader.appendChild(favTitleW); favBlock.appendChild(favHeader); container.appendChild(favBlock);
   favChk.addEventListener('change', ()=>{ if(favChk.checked){ if(!map.hasLayer(favoritesLayer)) favoritesLayer.addTo(map); } else { if(map.hasLayer(favoritesLayer)) map.removeLayer(favoritesLayer); } });
-  downloadIcon.addEventListener('click', (e)=>{ e.stopPropagation(); exportFavorites(); });
+  downloadIcon.addEventListener('click', (e)=>{ e.stopPropagation(); window.__exportFavorites(); });
 
   // CATEGORÍAS
   const catMainBlock = document.createElement("div"); catMainBlock.className="category-block";
@@ -688,11 +719,18 @@ withMap((map)=>{
     chkCat.addEventListener("change", ()=>{ const on=chkCat.checked; sublist.querySelectorAll("input[type=checkbox]").forEach(si=>{ si.checked=on; }); applyFilters(); });
   }
   catMainBlock.appendChild(categoriesWrapper); container.appendChild(catMainBlock);
-  catMainHeader.classList.add("expanded"); categoriesWrapper.style.display="block"; catMainArrow.innerHTML="&#9660;";
-  catMainHeader.addEventListener("click", ()=>{ const expanded=catMainHeader.classList.toggle("expanded"); categoriesWrapper.style.display = expanded ? "block" : "none"; catMainArrow.innerHTML = expanded ? "&#9660;" : "&#9654;"; });
-  catMainChk.addEventListener("change", ()=>{ const on=catMainChk.checked; categoriesWrapper.querySelectorAll("input[type=checkbox]").forEach(chk=>{ chk.checked=on; }); applyFilters(); });
 
-  // HORARIO (sin checkbox maestro, con botones Aplicar/Quitar)
+  // Maestro de CATEGORÍAS: marca/desmarca TODAS las subcasillas del bloque
+  catMainChk.addEventListener("change", ()=>{
+    const on = catMainChk.checked;
+    categoriesWrapper.querySelectorAll("input[type=checkbox]").forEach(chk => { chk.checked = on; });
+    applyFilters();
+  });
+
+  catMainHeader.classList.add("expanded"); categoriesWrapper.style.display="block"; catMainArrow.innerHTML="&#9660;";
+  catMainHeader.addEventListener("click", ()=>{ const expanded=catMainHeader.classList.toggle("expanded"); categoriesWrapper.style.display = expanded ? "block" : "none"; catMainArrow.innerHTML="&#9660;"; if(!expanded) catMainArrow.innerHTML="&#9654;"; });
+
+  // HORARIO
   const hourBlock = document.createElement("div"); hourBlock.className="category-block";
   const hourHeader = document.createElement("div"); hourHeader.className="category-header";
   const hourTitleW = document.createElement("div"); hourTitleW.className="title";
@@ -734,7 +772,6 @@ withMap((map)=>{
     hourArrow.innerHTML = expanded ? "&#9660;" : "&#9654;";
   });
 
-  // valores por defecto (día y hora actuales)
   (function setDefaultDayTime(){
     const now=new Date();
     daySelect.value=String((now.getDay()+6)%7);
@@ -743,7 +780,6 @@ withMap((map)=>{
     timeInput.value = `${hh}:${mm}`;
   })();
 
-  // estado del filtro de horario controlado por botones
   let hourFilterActive = false;
 
   applyBtn.addEventListener("click", ()=>{
@@ -802,7 +838,6 @@ withMap((map)=>{
     return new Set(list.filter(x=>x.checked).map(x=>x.getAttribute("data-value")));
   }
 
-  // Bloques simples
   createSimpleFilterBlock({
     id: "acc_silla",
     emoji: "♿",
@@ -816,7 +851,7 @@ withMap((map)=>{
     values: filtersUnique["precio"] || []
   });
 
-  // ========= NUEVOS BLOQUES DE UMBRAL: VALORACIÓN y NÚMERO DE RESEÑAS =========
+  // ========= UMBRALES: VALORACIÓN y RESEÑAS =========
   let ratingFilterActive = false;
   let reviewsFilterActive = false;
 
@@ -845,9 +880,9 @@ withMap((map)=>{
     row.appendChild(label); row.appendChild(input);
 
     const actionsRow = document.createElement("div"); actionsRow.style.display="flex"; actionsRow.style.gap="6px"; actionsRow.style.marginTop="6px";
-    const applyBtn = document.createElement("button"); applyBtn.textContent="Aplicar " + opts.shortTitle;
-    const clearBtn = document.createElement("button"); clearBtn.textContent="Quitar filtro";
-    actionsRow.appendChild(applyBtn); actionsRow.appendChild(clearBtn);
+    const applyBtn2 = document.createElement("button"); applyBtn2.textContent="Aplicar " + opts.shortTitle;
+    const clearBtn2 = document.createElement("button"); clearBtn2.textContent="Quitar filtro";
+    actionsRow.appendChild(applyBtn2); actionsRow.appendChild(clearBtn2);
 
     const hint = document.createElement("div"); hint.style.fontSize="12px"; hint.style.color="#666"; hint.textContent = opts.hint;
 
@@ -862,10 +897,9 @@ withMap((map)=>{
       arrow.innerHTML = expanded ? "&#9660;" : "&#9654;";
     });
 
-    // abierto por defecto
     header.classList.add("expanded"); wrapper.style.display="block"; arrow.innerHTML="&#9660;";
 
-    applyBtn.addEventListener("click", ()=>{
+    applyBtn2.addEventListener("click", ()=>{
       const val = input.value.trim();
       if (val === "") { alert("Introduce un valor numérico."); return; }
       const num = parseFloat(val);
@@ -876,7 +910,7 @@ withMap((map)=>{
       if (opts.type === "reviews") reviewsFilterActive = true;
       applyFilters();
     });
-    clearBtn.addEventListener("click", ()=>{
+    clearBtn2.addEventListener("click", ()=>{
       if (opts.type === "rating") ratingFilterActive = false;
       if (opts.type === "reviews") reviewsFilterActive = false;
       applyFilters();
@@ -906,7 +940,7 @@ withMap((map)=>{
     placeholder: "p.ej. 23",
     hint: "Muestra lugares con un número de reseñas mayor o igual al valor."
   });
-  // ========= FIN NUEVOS BLOQUES =========
+  // ========= FIN UMBRALES =========
 
   createSimpleFilterBlock({
     id: "estado",
@@ -923,7 +957,7 @@ withMap((map)=>{
 
   document.getElementById("show-all").addEventListener("click", ()=>{
     document.querySelectorAll("#categories-container input[type=checkbox]").forEach(chk=>{ chk.checked=true; });
-    ratingFilterActive = false; reviewsFilterActive = false; // restablece umbrales
+    ratingFilterActive = false; reviewsFilterActive = false;
     applyFilters();
   });
   document.getElementById("hide-all").addEventListener("click", ()=>{
@@ -936,20 +970,44 @@ withMap((map)=>{
     const sh = marker._shadow; if(sh) sh.style.display = visible ? "" : "none";
   }
 
+  // ✅ Filtrado por TIPOS_TUI (OR entre tipos marcados). Las categorías agrupan casillas.
   function markerMatchesCategoryFilters(marker){
-    const catToSubs = marker._catToSubs;
-    const mains = Object.keys(catToSubs);
-    for (const main of mains){
-      const subs = catToSubs[main];
-      for (const sub of subs){
-        const chk = document.querySelector(`input[data-main='${main}'][data-sub='${sub}']`);
-        if (chk && chk.checked) return true;
+    // 1) Recoger TODOS los subtipos marcados (excepto "(sin subcategoría)")
+    const checkedTypeLabels = Array
+      .from(document.querySelectorAll(`#categories-container input[type=checkbox][data-sub]`))
+      .filter(el => el.checked && el.getAttribute("data-sub") !== "(sin subcategoría)")
+      .map(el => el.getAttribute("data-sub"));
+
+    const anyTypeChecked = checkedTypeLabels.length > 0;
+
+    // 2) Conjunto normalizado de subtipos seleccionados
+    const checkedTypesNorm = new Set(checkedTypeLabels.map(normJS));
+
+    // 3) Si hay subtipos marcados → OR por tipos normalizados
+    if (anyTypeChecked){
+      for (const t of marker._typesNorm){
+        if (checkedTypesNorm.has(t)) return true;
       }
     }
+
+    // 4) Soporte de "(sin subcategoría)": si está marcada bajo alguna categoría,
+    //    mostramos registros que pertenezcan a esa categoría pero no tengan subtipos ahí.
+    const checkedEmptyCats = Array
+      .from(document.querySelectorAll(`#categories-container input[type=checkbox][data-sub="(sin subcategoría)"]`))
+      .filter(el => el.checked)
+      .map(el => el.getAttribute("data-main"));
+
+    if (checkedEmptyCats.length){
+      for (const c of checkedEmptyCats){
+        if (marker._catsEmpty && marker._catsEmpty.has(c)) return true;
+      }
+    }
+
+    // 5) Si no hay nada marcado en CATEGORÍAS (ni subtipos ni "(sin subcategoría)"), no muestra
     return false;
   }
 
-  // === LÓGICA DE FILTRADO (AND entre bloques) ===
+  // === LÓGICA DE FILTRADO (AND entre bloques de filtros) ===
   function applyFilters(){
     const favOn = document.getElementById('fav-main-chk').checked;
     if (favOn){ if(!map.hasLayer(favoritesLayer)) favoritesLayer.addTo(map); }
@@ -1007,12 +1065,10 @@ withMap((map)=>{
         visible = reservaSet.has(v);
       }
 
-      // Umbral de valoración (>=)
       if (visible && ratingFilterOn){
         const v = Number(marker._rec.rating);
         visible = !Number.isNaN(v) && v >= ratingThreshold;
       }
-      // Umbral de reseñas (>=)
       if (visible && reviewsFilterOn){
         const v = Number(marker._rec.total_reviews);
         visible = !Number.isNaN(v) && v >= reviewsThreshold;
@@ -1029,6 +1085,7 @@ withMap((map)=>{
   panelToggle.addEventListener("click", ()=>{ collapsed = !collapsed; filterBody.style.display = collapsed ? "none" : "flex"; panelToggle.innerHTML = collapsed ? "&#9654;" : "&#9660;"; });
 
   applyFilters();
+
   // === Pin de la ubicación del usuario (📌) ===
   const userLayer = L.layerGroup().addTo(map);
 
@@ -1062,7 +1119,7 @@ withMap((map)=>{
 
   // 2) Como respaldo, mira si el front guardó coords en localStorage
   try {
-    const s = localStorage.getItem("client_coords"); // p.ej. {lat, lon, accuracy}
+    const s = localStorage.getItem("client_coords");
     if (s) {
       const o = JSON.parse(s);
       if (o.lat && o.lon) putUserPin(+o.lat, +o.lon, o.accuracy);
@@ -1086,4 +1143,4 @@ withMap((map)=>{
 
 m.get_root().html.add_child(folium.Element(js))
 m.save(HTML_OUT)
-print("✔️  Mapa (filtros actualizados con valoración y número de reseñas) guardado en", HTML_OUT)
+print("✔️  Mapa (carga incremental y filtros por TIPOS_TUI) guardado en", HTML_OUT)
