@@ -57,7 +57,7 @@ jobs:
 
       - name: Generate map HTML
         run: |
-          python scripts/make_map_madrid.py
+          python scripts/mapa_madrid.py
 
       # 🔑 Cambios CLAVE:
       # - Antes: hacías commit si CHANGED == true (lo que iba bien, pero en main creaba un segundo push tras el merge)
