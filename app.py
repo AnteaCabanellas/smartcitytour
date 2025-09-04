@@ -15,6 +15,14 @@ from typing import List
 load_dotenv()
 app = Flask(__name__)
 
+@app.after_request
+def add_security_headers(resp):
+    # Si el index y el widget van en el MISMO origen (mismo dominio/puerto):
+    resp.headers['Permissions-Policy'] = 'geolocation=(self)'
+    # Si el widget va en OTRO origen, comenta la línea de arriba y usa esta (ajusta el dominio):
+    # resp.headers['Permissions-Policy'] = 'geolocation=(self "https://widget.tu-dominio.com")'
+    return resp
+
 @app.context_processor
 def inject_build_version():
     return {"build_version": int(time.time())}
@@ -24,7 +32,6 @@ MAD_TZ = pytz.timezone("Europe/Madrid")
 DAYS_ES = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"]
 
 # ===== Contexto de plan por conversación (memoria en backend) =====
-# conversation_id -> {"place_ids": [...], "names": [...], "ts": epoch}
 LAST_PLAN = {}
 
 def _save_plan_context(conversation_id: str, hits: pd.DataFrame, limit=12):
@@ -484,6 +491,8 @@ DISTRICTS = {
 }
 AREA_HINTS = {"por","en","cerca","cercanos","cercanas","zona","barrio","distrito","alrededor"}
 
+
+
 def extract_area_from_query(q: str):
     tks = tokenize(q)
     joined, i = [], 0
@@ -516,6 +525,21 @@ def correct_head_typos(q_tokens):
     return corrected
 
 # ======================
+# Calidad (top por rating+reseñas)
+# ======================
+def top_quality(df_in, limit=12):
+    if df_in is None or df_in.empty:
+        return df_in
+    tmp = df_in.copy()
+    tmp["_R_REV"] = pd.to_numeric(tmp.get("TOTAL_VALORACIONES_TUI"), errors="coerce").fillna(0)
+    if "_RATING" not in tmp.columns:
+        tmp["_RATING"] = pd.to_numeric(tmp.get("RATING_TUI"), errors="coerce")
+    out = (tmp.sort_values(by=["_RATING","_R_REV"], ascending=[False, False])
+               .head(limit)
+               .drop(columns=["_R_REV"], errors="ignore"))
+    return out
+
+# ======================
 # Búsqueda base
 # ======================
 def buscar_top(pregunta, max_resultados=12):
@@ -524,7 +548,10 @@ def buscar_top(pregunta, max_resultados=12):
     q = (pregunta or "").strip()
     qn = norm_text(q)
     q_tokens_raw = tokenize_query(q)
-    if not qn: return df.head(0)
+
+    # Inicio sin query → TOP globales por calidad
+    if not qn:
+        return top_quality(df, limit=max_resultados)
 
     q_tokens = correct_head_typos(q_tokens_raw)
     q_ngrams = build_ngrams(q_tokens, 1, 4)
@@ -637,13 +664,13 @@ def buscar_top(pregunta, max_resultados=12):
 # ======================
 # Filtros, distancia y listas
 # ======================
-def _aplica_filtros(hits, user_text):
+def _aplica_filtros(hits, user_text, now_dt=None):
     if hits is None or hits.empty: return hits
     tx = norm_text(user_text or "")
     out = hits.copy()
 
     if any(k in tx for k in ["abierto ahora","abiertos ahora","open now"]):
-        out = out.loc[out["_CAL_HORAS"].apply(lambda s: is_open_now(s))]
+        out = out.loc[out["_CAL_HORAS"].apply(lambda s: is_open_now(s, now_dt=now_dt))]
     if any(k in tx for k in ["accesible","silla de ruedas","wheelchair"]):
         if "ACCESIBILIDAD_SILLA_RUEDAS" in out.columns:
             out = out.loc[out["ACCESIBILIDAD_SILLA_RUEDAS"].str.upper().eq("SI")]
@@ -705,6 +732,10 @@ def resumen_para_respuesta(filas):
 # ======================
 # Planificación (día / semana)
 # ======================
+def try_fetch_hours_from_web(row):
+    """Stub: podrías implementar un fetch a la web oficial para raspar horarios."""
+    return None
+
 def lugares_abiertos_hoy(df_in, start_dt=None):
     now = start_dt or datetime.now(MAD_TZ)
     dow = now.weekday()
@@ -713,7 +744,12 @@ def lugares_abiertos_hoy(df_in, start_dt=None):
         slots = row.get("_CAL_HORAS", {}) if isinstance(row.get("_CAL_HORAS"), dict) else {}
         day_slots = slots.get(dow, []) if slots else []
         if not day_slots:
-            rows.append({**row.to_dict(), "__open_min": None, "__close_min": None, "__penalty": 1})
+            fetched = try_fetch_hours_from_web(row)
+            if fetched and fetched.get(dow):
+                o_m, c_m = min(fetched.get(dow, []), key=lambda t: t[0])
+                rows.append({**row.to_dict(), "__open_min": o_m, "__close_min": c_m, "__penalty": 0})
+            else:
+                rows.append({**row.to_dict(), "__open_min": None, "__close_min": None, "__penalty": 1})
         else:
             o_m, c_m = min(day_slots, key=lambda t: t[0])
             rows.append({**row.to_dict(), "__open_min": o_m, "__close_min": c_m, "__penalty": 0})
@@ -846,17 +882,18 @@ def _overview_system_prompt():
 
 def build_overview_prompt(user_query: str, names: List[str]) -> list:
     overview_instructions = """
-Vista general narrativa y conversacional:
-- Recomienda época del año y ofrece elegir temporada.
-- Overview narrativo con 2–3 frases por lugar (solo de la lista).
-- Ofrece opciones temáticas si no hay preferencias.
-- Consejos de ahorro, mejores horas, alternativas por clima extremo.
-- Pregunta si quiere plan detallado + presupuesto + ritmo.
+Vista general narrativa y conversacional (para Madrid):
+- Recomienda una época del año concreta y ofrece elegir temporada.
+- Habla brevemente de la TEMPORADA ACTUAL (clima típico y afluencia).
+- Overview narrativo con 2–3 frases por lugar (usa SOLO los nombres dados; prioriza los de mejor valoración).
+- Ofrece 2–3 opciones temáticas si no hay preferencias (cultural, foodies, parques…).
+- Consejos de ahorro (días gratuitos), mejores horas y alternativas por clima extremo.
+- Cierra preguntando si quiere: plan (hoy o semanal), plan DETALLADO (+presupuesto+ritmo) o datos generales.
 
 REGLAS DURAS:
-- NO muestres direcciones, teléfonos, horarios, ratings ni ningún dato que no provenga del nombre del lugar.
-- Usa únicamente los nombres dados (puedes usar nombres comunes/equivalentes).
-- Mantén tono cálido y cercano, como guía local.
+- NO muestres direcciones, teléfonos, horarios, ratings ni datos fuera del nombre.
+- Usa exclusivamente los nombres dados (o sus equivalentes comunes). No inventes nuevos.
+- Tono cálido y cercano, estilo guía local.
 """
     user_content = f"""
 Consulta del viajero: {user_query}
@@ -864,18 +901,13 @@ Consulta del viajero: {user_query}
 Lugares disponibles (usa EXCLUSIVAMENTE estos nombres, sin inventar otros):
 {json.dumps(names, ensure_ascii=False, indent=2)}
 
-Instrucciones de formato y flujo (OBLIGATORIO):
-1) Recomienda una época concreta del año (clima agradable + menos colas) y ofrece planear en esa u otra temporada.
-2) Presenta un overview narrativo del día (o varios si aplica), como un paseo guiado.
-   • Incluye 2–3 frases por cada lugar (qué lo hace especial). NO pongas horarios aún.
-   • Si el viajero no ha dado preferencias, sugiere 2–3 opciones temáticas (cultural, foodies, parques, etc.).
-   • Añade avisos de ahorro (días gratuitos de museos, abono transporte), mejores horas y alternativas por clima extremo.
-3) Cierra preguntando si quiere un plan DETALLADO con:
-   • Horas de inicio/fin por actividad.
-   • Indicaciones (a pie/metro/bus).
-   • Paradas de comida, copas y nightlife.
-   • Para tickets, escribe “web oficial del sitio”.
-4) Pregunta presupuesto (low-cost / intermedio / sin escatimar) y ritmo (relajado / completo).
+Formato sugerido (usa negritas en títulos y bullets donde aporte claridad):
+1) **Época recomendada** + opción de cambiar temporada.
+2) **Temporada actual** (1–2 frases).
+3) **Overview del día** con 2–3 frases por lugar (sin horarios).
+4) **Opciones temáticas** (si no hay preferencias).
+5) **Consejos** de ahorro/horas/alternativas por clima extremo.
+6) **¿Qué te interesa más?** (plan hoy / plan semanal / plan detallado / datos generales). Pide presupuesto (low-cost/intermedio/sin escatimar) y ritmo (relajado/completo).
 """
     return [
         {"role": "system", "content": _overview_system_prompt()},
@@ -928,7 +960,8 @@ def detailed_plan_from_itinerary(user_query: str, items, ciudad="Madrid"):
     system = (
         "Eres un planificador local en Madrid. Debes usar SOLO los nombres proporcionados, sin añadir lugares nuevos. "
         "Entrega un plan DETALLADO, con estilo claro, conciso y con iconos. NO muestres direcciones, teléfonos ni "
-        "horarios de apertura. Solo la franja de visita (ya dada). Para tickets: 'web oficial del sitio'."
+        "horarios de apertura. Si falta horario en algún sitio, añade: 'Horarios no disponibles; verifica la web oficial del sitio'. "
+        "Para tickets: 'web oficial del sitio'."
     )
     user = f"""
 Consulta del viajero: {user_query}
@@ -1032,10 +1065,36 @@ def construir_plan(user_latest, start_time, start_lat, start_lon, weekly=False, 
     hits = buscar_top(user_latest, max_resultados=60)
     if hits.empty:
         return fallback_llm_plan(weekly, start_time, user_latest, start_lat, start_lon)
-
+    hits = top_quality(hits, limit=60)
     hits = _aplica_filtros(hits, user_latest)
     candidate_names = [str(x).strip() for x in hits["NOMBRE_TUI"].tolist() if str(x).strip()]
     return narrative_overview(user_latest, candidate_names)
+
+# === Selección "viva" de IDs del chat (PLACE_ID), visible por el mapa ===
+CURRENT_PLACE_IDS = []
+CURRENT_PLACE_TS = 0
+
+def _update_current_place_ids(place_ids):
+    """Reemplaza la selección actual (STRINGs) que el mapa usará para filtrar."""
+    global CURRENT_PLACE_IDS, CURRENT_PLACE_TS
+    CURRENT_PLACE_IDS = [str(x).strip() for x in (place_ids or []) if str(x).strip()]
+    CURRENT_PLACE_TS = int(time.time())
+
+@app.route("/api/current_place_ids", methods=["GET"])
+def api_current_place_ids():
+    names = []
+    try:
+        if CURRENT_PLACE_IDS and "PLACE_ID" in df.columns and "NOMBRE_TUI" in df.columns:
+            names = (df.loc[df["PLACE_ID"].astype(str).isin(CURRENT_PLACE_IDS), "NOMBRE_TUI"]
+                        .astype(str).str.strip().tolist())
+    except Exception:
+        names = []
+    return jsonify({"place_ids": CURRENT_PLACE_IDS, "names": names, "ts": CURRENT_PLACE_TS})
+
+@app.route("/api/current_place_ids/clear", methods=["POST"])
+def api_current_place_ids_clear():
+    _update_current_place_ids([])
+    return jsonify({"ok": True, "cleared": True, "ts": CURRENT_PLACE_TS})
 
 # ======================
 # Rutas
@@ -1049,7 +1108,7 @@ def chat():
     data = request.get_json()
     messages = data.get("messages")
     if not messages:
-        return jsonify({"error":"No messages provided"}), 400
+        return jsonify({"error": "No messages provided"}), 400
 
     # Contexto de conversación
     conversation_id = (data.get("conversation_id") or data.get("conv_id") or "").strip()
@@ -1066,20 +1125,61 @@ def chat():
     force_plan  = bool(data.get("force_plan"))
     weekly      = bool(data.get("weekly"))
     detailed    = bool(data.get("detailed"))
+    bootstrap   = bool(data.get("bootstrap"))  # NUEVO: saludo inicial desde backend
+
+    # === Hora actual si el usuario no cambió y está pidiendo plan/weekly/detallado ===
+    if (force_plan or detailed or weekly) and (not data.get("start_time") or start_time == "09:30"):
+        now_local = datetime.now(MAD_TZ)
+        start_time = now_local.strftime("%H:%M")
+
+    # Construir now_dt con la hora de inicio elegida para usar en "abiertos ahora"
+    try:
+        hh, mm = map(int, (start_time or "09:30").split(":"))
+        base = datetime.now(MAD_TZ)
+        now_dt = base.replace(hour=hh, minute=mm, second=0, microsecond=0)
+    except Exception:
+        now_dt = datetime.now(MAD_TZ)
+
+    # === (A0) BOOTSTRAP: primer mensaje sin depender de la query (desde frontend) ===
+    if bootstrap:
+        hits_first = top_quality(df, limit=60)
+        if prefer_open:
+            user_latest = (user_latest + " abiertos ahora").strip()
+        hits_first = _aplica_filtros(hits_first, user_latest, now_dt=now_dt)
+
+        if not hits_first.empty:
+            _save_plan_context(conversation_id, hits_first, limit=12)
+
+            place_ids = _collect_place_ids_from_df(hits_first, limit=12)
+            _update_current_place_ids(place_ids)
+            if place_ids:
+                print("PLACE_IDS_USED[bootstrap]:", ", ".join(place_ids))
+                app.logger.info("PLACE_IDS_USED[bootstrap]: %s", ", ".join(place_ids))
+
+            candidate_names = [str(x).strip() for x in hits_first["NOMBRE_TUI"].tolist() if str(x).strip()]
+            reply = narrative_overview(user_latest, candidate_names)
+
+            threading.Thread(target=guardar_historial, args=(messages, reply, place_ids)).start()
+            return jsonify({"response": reply})
+        else:
+            _update_current_place_ids([])
+            reply = fallback_llm_general(user_latest, start_lat, start_lon)
+            threading.Thread(target=guardar_historial, args=(messages, reply, [])).start()
+            return jsonify({"response": reply})
 
     # === (A) PRIMER MENSAJE: Overview narrativo ===
     if is_first_user_turn and not detailed:
         hits_first = buscar_top(user_latest, max_resultados=60)
+        hits_first = top_quality(hits_first, limit=60)
         if prefer_open:
             user_latest = (user_latest + " abiertos ahora").strip()
-        hits_first = _aplica_filtros(hits_first, user_latest)
+        hits_first = _aplica_filtros(hits_first, user_latest, now_dt=now_dt)
 
         if not hits_first.empty:
-            # Guardar contexto para detallado posterior
             _save_plan_context(conversation_id, hits_first, limit=12)
 
-            # PLACE_ID (backend)
             place_ids = _collect_place_ids_from_df(hits_first, limit=12)
+            _update_current_place_ids(place_ids)
             if place_ids:
                 print("PLACE_IDS_USED[overview]:", ", ".join(place_ids))
                 app.logger.info("PLACE_IDS_USED[overview]: %s", ", ".join(place_ids))
@@ -1090,6 +1190,7 @@ def chat():
             threading.Thread(target=guardar_historial, args=(messages, reply, place_ids)).start()
             return jsonify({"response": reply})
         else:
+            _update_current_place_ids([])
             reply = fallback_llm_general(user_latest, start_lat, start_lon)
             threading.Thread(target=guardar_historial, args=(messages, reply, [])).start()
             return jsonify({"response": reply})
@@ -1099,7 +1200,6 @@ def chat():
         ctx = _load_plan_context(conversation_id)
 
         if ctx and (ctx.get("place_ids") or ctx.get("names")):
-            # Reconstruir hits SOLO con los sitios del overview, y mantener su orden
             if ctx.get("place_ids") and "PLACE_ID" in df.columns:
                 hits = df.loc[df["PLACE_ID"].astype(str).isin(ctx["place_ids"])].copy()
                 hits["__order"] = pd.Categorical(
@@ -1119,38 +1219,40 @@ def chat():
 
             if prefer_open:
                 user_latest = (user_latest + " abiertos ahora").strip()
-            hits = _aplica_filtros(hits, user_latest)
+            hits = _aplica_filtros(hits, user_latest, now_dt=now_dt)
 
             if start_lat is not None and start_lon is not None and not hits.empty:
-                # Orden por distancia secundario (sin perder el orden original si empata)
                 hits = _sort_by_distance(hits, start_lat, start_lon)
 
         else:
-            # Sin contexto → flujo anterior
             hits = buscar_top(user_latest, max_resultados=60)
+            hits = top_quality(hits, limit=60)
             if prefer_open:
                 user_latest = (user_latest + " abiertos ahora").strip()
-            hits = _aplica_filtros(hits, user_latest)
+            hits = _aplica_filtros(hits, user_latest, now_dt=now_dt)
             if start_lat is not None and start_lon is not None:
                 hits = _sort_by_distance(hits, start_lat, start_lon)
 
         if hits.empty:
+            _update_current_place_ids([])
             reply = "No pude construir un plan detallado con los datos actuales. Dime el tipo de sitios que prefieres."
             threading.Thread(target=guardar_historial, args=(messages, reply, [])).start()
             return jsonify({"response": reply})
 
         place_ids = _collect_place_ids_from_df(hits, limit=20)
+        _update_current_place_ids(place_ids)
         if place_ids:
             print("PLACE_IDS_USED[detailed]:", ", ".join(place_ids))
             app.logger.info("PLACE_IDS_USED[detailed]: %s", ", ".join(place_ids))
 
-        cand = lugares_abiertos_hoy(hits)
+        cand = lugares_abiertos_hoy(hits, start_dt=now_dt)
         items = construir_itinerario(
             cand,
             start_time=start_time or "09:30",
             start_lat=start_lat,
             start_lon=start_lon,
-            max_stops=6
+            max_stops=6,
+            start_dt=now_dt
         )
         reply = detailed_plan_from_itinerary(user_latest, items)
         threading.Thread(target=guardar_historial, args=(messages, reply, place_ids)).start()
@@ -1159,14 +1261,16 @@ def chat():
     # === (C) Planificación (overview forzado / semanal) ===
     if force_plan or weekly:
         hits = buscar_top(user_latest, max_resultados=60)
+        hits = top_quality(hits, limit=60)
         if prefer_open:
             user_latest = (user_latest + " abiertos ahora").strip()
-        hits = _aplica_filtros(hits, user_latest)
+        hits = _aplica_filtros(hits, user_latest, now_dt=now_dt)
 
         if not hits.empty:
             _save_plan_context(conversation_id, hits, limit=20)
 
             place_ids = _collect_place_ids_from_df(hits, limit=20)
+            _update_current_place_ids(place_ids)
             if place_ids:
                 print("PLACE_IDS_USED[plan]:", ", ".join(place_ids))
                 app.logger.info("PLACE_IDS_USED[plan]: %s", ", ".join(place_ids))
@@ -1176,6 +1280,7 @@ def chat():
             threading.Thread(target=guardar_historial, args=(messages, reply, place_ids)).start()
             return jsonify({"response": reply})
         else:
+            _update_current_place_ids([])
             reply = construir_plan(
                 user_latest,
                 start_time=start_time,
@@ -1191,17 +1296,20 @@ def chat():
     hits = buscar_top(user_latest, max_resultados=24)
     if prefer_open:
         user_latest = (user_latest + " abiertos ahora").strip()
-    hits = _aplica_filtros(hits, user_latest)
+    hits = _aplica_filtros(hits, user_latest, now_dt=now_dt)
 
     if start_lat is not None and start_lon is not None:
         hits = _sort_by_distance(hits, start_lat, start_lon)
 
     if hits.empty:
+        _update_current_place_ids([])
         reply = fallback_llm_general(user_latest, start_lat, start_lon)
         threading.Thread(target=guardar_historial, args=(messages, reply, [])).start()
         return jsonify({"response": reply})
 
     place_ids = _collect_place_ids_from_df(hits.head(10), limit=10)
+    _update_current_place_ids(place_ids)
+    _save_plan_context(conversation_id, hits.head(12), limit=12)
     if place_ids:
         print("PLACE_IDS_USED[listado]:", ", ".join(place_ids))
         app.logger.info("PLACE_IDS_USED[listado]: %s", ", ".join(place_ids))
@@ -1264,6 +1372,7 @@ def api_poi():
             rid = abs(hash((r.get("NOMBRE_TUI",""), r.get(LAT), r.get(LON)))) % (2**31)
         return {
             "id": int(rid),
+            "place_id": str(r.get("PLACE_ID","") or ""),
             "name": r.get("NOMBRE_TUI",""),
             "description": r.get("DESCRIPCION_TUI",""),
             "lat": float(r.get(LAT)),
@@ -1286,6 +1395,41 @@ def api_poi():
         }
 
     return jsonify([row_to_obj(r) for _, r in subset.iterrows()])
+
+@app.route("/api/lookup_place_ids", methods=["GET"])
+def api_lookup_place_ids():
+    ids_raw = request.args.get("place_ids", "") or ""
+    ids = [x.strip() for x in ids_raw.split(",") if x and x.strip()]
+    if not ids:
+        return jsonify([])
+    if "PLACE_ID" not in df.columns or "LATITUD_TUI" not in df.columns or "LONGITUD_TUI" not in df.columns:
+        return jsonify([])
+
+    sub = df.loc[df["PLACE_ID"].astype(str).isin(ids), ["PLACE_ID","NOMBRE_TUI","LATITUD_TUI","LONGITUD_TUI"]].copy()
+    out = []
+    for _, r in sub.iterrows():
+        try:
+            out.append({
+                "place_id": str(r["PLACE_ID"]),
+                "name": (r.get("NOMBRE_TUI") or ""),
+                "lat": float(r["LATITUD_TUI"]),
+                "lon": float(r["LONGITUD_TUI"]),
+            })
+        except Exception:
+            continue
+    return jsonify(out)
+
+@app.route("/api/conversation_place_ids/<conversation_id>", methods=["GET"])
+def api_conversation_place_ids(conversation_id):
+    """Devuelve los place_ids asociados a una conversación específica"""
+    ctx = _load_plan_context(conversation_id)
+    if ctx:
+        return jsonify({
+            "place_ids": ctx.get("place_ids", []),
+            "names": ctx.get("names", []),
+            "ts": ctx.get("ts", 0)
+        })
+    return jsonify({"place_ids": [], "names": [], "ts": 0})
 
 # Puertos a usar
 if __name__ == "__main__":

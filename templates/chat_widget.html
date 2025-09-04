@@ -118,6 +118,7 @@
         <div class="actions">
           <button type="button" class="ghost" id="clear" aria-label="Limpiar conversación">Limpiar</button>
           <button type="button" class="ghost" id="export" aria-label="Exportar conversación">Exportar</button>
+          <button type="button" class="cta" id="show-on-map" aria-label="Ver en mapa">Ver en mapa</button>
           <button type="button" class="cta primary" id="detailed" aria-label="Generar plan detallado">Plan detallado</button>
         </div>
       </div>
@@ -150,8 +151,9 @@
     const wheelchair  = $("#wheelchair");
     const reservas    = $("#reservas");
     const detailedBtn = $("#detailed");
+    const showOnMapBtn = $("#show-on-map");
 
-    // ===== conversation_id persistente (para que el plan detallado use los mismos sitios) =====
+    // ===== conversation_id persistente =====
     function uuid(){ return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
       (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
     );}
@@ -198,15 +200,29 @@
       localStorage.setItem("uiPrefs", JSON.stringify(prefs));
     });
 
-    // ===== mensaje de bienvenida (alineado con overview narrativo) =====
-    if (chatHistory.length === 0){
-      const hello = "Voy a darte primero una **vista general narrativa** (época recomendada, lugares con 2–3 frases, consejos y alternativas). Luego, con **Plan detallado**, te doy horarios, trayectos y paradas usando **exactamente los mismos sitios**. Elige modo **Plan (hoy)** o **Plan semanal**, o usa los chips (Museos, Bares…).";
-      addBot(hello);
-      chatHistory.push({ role:"assistant", content: hello });
-      saveHistory();
-    } else {
+    // ===== restaurar historial o pedir primer mensaje al backend =====
+    if (chatHistory.length > 0){
       chatHistory.forEach(m => addRow(m.role === "assistant" ? "assistant" : m.role, m.content, false));
       scrollBottom();
+    } else {
+      bootstrapFirstMessage();
+    }
+
+    async function bootstrapFirstMessage(){
+      const payload = {
+        conversation_id: conversationId,
+        messages: [{ role: "user", content: "inicio" }],
+        force_plan: true,      // overview inicial
+        weekly: false,
+        prefer_open: preferOpen.checked,
+        bootstrap: true        // bandera para backend
+      };
+      if (useGeo.checked && userLat != null && userLon != null){
+        payload.start_lat = userLat;
+        payload.start_lon = userLon;
+      }
+      await callChat(payload);
+      refreshShowOnMapState();
     }
 
     // ===== markdown muy ligero =====
@@ -264,7 +280,7 @@
     }));
 
     // ===== limpiar / exportar =====
-    $("#clear").addEventListener("click", ()=>{
+    $("#clear").addEventListener("click", async ()=>{
       chatHistory = [];
       localStorage.removeItem("chatHistory");
       chatlog.innerHTML = "";
@@ -274,14 +290,15 @@
       startTimeEl.value = "09:30";
       localStorage.removeItem("uiPrefs");
 
-      // reset de conversación (nuevo contexto en backend)
+      // reset de conversación
       conversationId = uuid();
       localStorage.setItem("conversation_id", conversationId);
 
-      const msg = "Conversación reiniciada. Pide un plan (hoy o semanal) o busca por categoría. El primer mensaje será una **vista general narrativa**.";
-      addBot(msg);
-      chatHistory.push({ role:"assistant", content: msg });
+      addBot("Conversación reiniciada. Generando una vista general…");
+      chatHistory.push({ role:"assistant", content:"Conversación reiniciada. Generando una vista general…" });
       saveHistory();
+
+      await bootstrapFirstMessage();
     });
 
     $("#export").addEventListener("click", ()=>{
@@ -295,7 +312,7 @@
       a.remove();
     });
 
-    /* ===== intención & filtros por texto ===== */
+    // ===== intención & filtros por texto =====
     const INTENT = {
       weekly: /\b(semana|semanal|fin de semana|finde|weekend)\b/i,
       day: /\b(plan|itinerario|hoy|mañana|manana|esta tarde|esta noche)\b/i,
@@ -319,7 +336,9 @@
 
       if (weekly)      modeSel.value = "plan-semana";
       else if (day)    modeSel.value = "plan-dia";
-
+      if (near) {
+        useGeo.checked = true;   // pediremos permiso más tarde si hace falta
+      }
       return { weekly, day, near };
     }
 
@@ -334,28 +353,33 @@
     // ===== geolocalización =====
     let userLat = null, userLon = null;
 
-    async function requestGeo(){
+    function requestGeo(){
       if (!navigator.geolocation){
         geoStatus.textContent = "Ubicación: no soportada";
-        return;
+        return Promise.resolve(false);
       }
       geoStatus.textContent = "Ubicación: solicitando permiso…";
-      navigator.geolocation.getCurrentPosition(
-        (pos)=>{
-          userLat = +(pos.coords.latitude.toFixed(6));
-          userLon = +(pos.coords.longitude.toFixed(6));
-          geoStatus.textContent = `Ubicación: ✓ (${userLat}, ${userLon})`;
-        },
-        (err)=>{
-          geoStatus.textContent = "Ubicación: denegada o no disponible";
-          userLat = userLon = null;
-          console.warn("Geolocation error:", err);
-        },
-        { enableHighAccuracy:true, timeout:10000, maximumAge:300000 }
-      );
+      return new Promise(resolve => {
+        navigator.geolocation.getCurrentPosition(
+          (pos)=>{
+            userLat = +(pos.coords.latitude.toFixed(6));
+            userLon = +(pos.coords.longitude.toFixed(6));
+            geoStatus.textContent = `Ubicación: ✓ (${userLat}, ${userLon})`;
+            resolve(true);
+          },
+          (err)=>{
+            geoStatus.textContent = "Ubicación: denegada o no disponible";
+            userLat = userLon = null;
+            console.warn("Geolocation error:", err);
+            resolve(false);
+          },
+          { enableHighAccuracy:true, timeout:10000, maximumAge:300000 }
+        );
+      });
     }
-    $("#use-geo").addEventListener("change", (e)=>{
-      if (e.target.checked) requestGeo();
+
+    $("#use-geo").addEventListener("change", async (e)=>{
+      if (e.target.checked) await requestGeo();
       else { userLat = userLon = null; geoStatus.textContent = "Ubicación: desactivada"; }
     });
 
@@ -368,14 +392,26 @@
       if (!ok) return false;
 
       useGeo.checked = true;
-      await requestGeo();
-      await new Promise(r => setTimeout(r, 600));
-      return (userLat != null && userLon != null);
+      const ok2 = await requestGeo();
+      return ok2 && userLat != null && userLon != null;
+    }
+
+    // ===== “pensando…” animado =====
+    function startDots(rowEl){
+      const span = rowEl.querySelector(".thinking");
+      if (!span) return;
+      let i = 0;
+      const id = setInterval(()=>{ span.textContent = ".".repeat(1 + (i++ % 3)); }, 400);
+      rowEl.dataset.dotsTimer = String(id);
+    }
+    function stopDots(rowEl){
+      const id = rowEl?.dataset?.dotsTimer;
+      if (id){ clearInterval(Number(id)); delete rowEl.dataset.dotsTimer; }
     }
 
     // ===== petición al backend =====
     async function callChat(payload){
-      payload.conversation_id = conversationId; // clave para reutilizar sitios en plan detallado
+      payload.conversation_id = conversationId;
 
       const box = $("#chatbox");
       const thinking = document.createElement("div");
@@ -388,7 +424,7 @@
 
       try{
         const controller = new AbortController();
-        const timeout = setTimeout(()=>controller.abort(), 30000);
+        const timeout = setTimeout(()=>controller.abort(), 45000);
 
         const res = await fetch("/chat", {
           method:"POST",
@@ -423,20 +459,8 @@
         console.error(err);
       } finally {
         scrollBottom();
+        refreshShowOnMapState(); // refresca estado del botón siempre
       }
-    }
-
-    // “pensando…” animado
-    function startDots(rowEl){
-      const span = rowEl.querySelector(".thinking");
-      if (!span) return;
-      let i = 0;
-      const id = setInterval(()=>{ span.textContent = ".".repeat(1 + (i++ % 3)); }, 400);
-      rowEl.dataset.dotsTimer = String(id);
-    }
-    function stopDots(rowEl){
-      const id = rowEl?.dataset?.dotsTimer;
-      if (id){ clearInterval(Number(id)); delete rowEl.dataset.dotsTimer; }
     }
 
     // ===== envío normal =====
@@ -476,12 +500,6 @@
 
     // ===== CTA: plan detallado =====
     detailedBtn.addEventListener("click", async ()=>{
-      if (chatHistory.length === 0){
-        addBot("Primero generemos una vista general (elige ‘Plan (hoy)’ o ‘Plan semanal’ y envía un mensaje). Luego preparo el plan detallado.");
-        chatHistory.push({ role:"assistant", content:"Primero generemos una vista general…" });
-        saveHistory();
-        return;
-      }
       const payload = {
         conversation_id: conversationId,
         messages: chatHistory,
@@ -498,7 +516,7 @@
       await callChat(payload);
     });
 
-    // textarea auto-grow
+    // ===== textarea auto-grow + Enter para enviar =====
     input.addEventListener("input", ()=>{
       input.style.height = "auto";
       input.style.height = Math.min(input.scrollHeight, 160) + "px";
@@ -509,6 +527,45 @@
         $("#composer").requestSubmit();
       }
     });
+
+    // ===== Ver en mapa =====
+    showOnMapBtn.addEventListener("click", () => {
+      try {
+        window.parent?.postMessage({ type: "SCT_SHOW_ON_MAP", conversation_id: conversationId }, "*");
+      } catch (e) { console.warn(e); }
+    });
+
+    async function refreshShowOnMapState() {
+      try {
+        let hasAny = false;
+        // 1) Contexto por conversación
+        if (conversationId) {
+          const r1 = await fetch(`/api/conversation_place_ids/${encodeURIComponent(conversationId)}`);
+          if (r1.ok) {
+            const j1 = await r1.json();
+            hasAny = Array.isArray(j1.place_ids) && j1.place_ids.length > 0;
+          }
+        }
+        // 2) Fallback: estado vivo
+        if (!hasAny) {
+          const r2 = await fetch(`/api/current_place_ids`);
+          if (r2.ok) {
+            const j2 = await r2.json();
+            hasAny = Array.isArray(j2.place_ids) && j2.place_ids.length > 0;
+          }
+        }
+        showOnMapBtn.disabled = !hasAny;
+        showOnMapBtn.setAttribute("aria-disabled", String(!hasAny));
+        showOnMapBtn.title = hasAny ? "Ver en mapa" : "No hay resultados que mostrar";
+
+        // opcional: deshabilitar plan detallado si no hay contexto
+        detailedBtn.disabled = !hasAny;
+        detailedBtn.setAttribute("aria-disabled", String(!hasAny));
+      } catch {}
+    }
+
+    // inicial
+    window.addEventListener("load", refreshShowOnMapState);
   </script>
 </body>
 </html>
