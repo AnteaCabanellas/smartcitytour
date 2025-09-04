@@ -502,6 +502,20 @@ function getEmojiForRec(catToSubs){
   return cat2emoji[fallback] || "📍";
 }
 
+/* === Estado de filtro proveniente del CHATBOT === */
+let chatFilter = {
+  active: false,
+  placeIds: new Set(),
+  names: [],
+};
+
+/* Extraer place_id de gmaps_url como respaldo */
+function extractPlaceIdFromUrl(url){
+  if(!url) return null;
+  const m = url.match(/(?:[?&])(place_id|placeid|query_place_id)=([^&#]+)/i);
+  return m ? decodeURIComponent(m[2]) : null;
+}
+
 withMap((map)=>{
   // Panel de filtros
   const FilterControl = L.Control.extend({
@@ -588,6 +602,8 @@ withMap((map)=>{
 
     marker._recId = rec.id;
     marker._rec   = rec;
+    marker._placeId = rec.place_id || extractPlaceIdFromUrl(rec.gmaps_url) || String(rec.id || "");
+
 
     // ➕ campos nuevos para el filtrado por TIPOS_TUI
     marker._typesNorm = typesNormSet; // Set<string> normalizados de TIPOS_TUI del registro
@@ -668,6 +684,63 @@ withMap((map)=>{
   });
 
   const container = document.getElementById("categories-container");
+
+// ================= CHATBOT =================
+const chatBlock = document.createElement("div"); chatBlock.className = "category-block";
+const chatHeader = document.createElement("div"); chatHeader.className = "category-header";
+const chatTitleW = document.createElement("div"); chatTitleW.className = "title";
+const chatEmoji = document.createElement("span"); chatEmoji.textContent = "🤖";
+const chatName = document.createElement("span"); chatName.textContent = "CHATBOT";
+chatTitleW.appendChild(chatEmoji); chatTitleW.appendChild(chatName);
+const chatArrow = document.createElement("div"); chatArrow.className = "toggle-arrow"; chatArrow.innerHTML = "&#9654;";
+chatHeader.appendChild(chatTitleW); chatHeader.appendChild(chatArrow);
+chatBlock.appendChild(chatHeader);
+
+const chatWrapper = document.createElement("div"); chatWrapper.className="subcat-list"; chatWrapper.style.paddingLeft="12px";
+const chatList = document.createElement("div"); chatList.id = "chatbot-names"; chatList.style.display="flex"; chatList.style.flexDirection="column"; chatList.style.gap="4px";
+const chatBtns = document.createElement("div"); chatBtns.style.display="flex"; chatBtns.style.gap="6px"; chatBtns.style.marginTop="6px";
+const chatClear = document.createElement("button"); chatClear.textContent = "Limpiar filtro";
+chatBtns.appendChild(chatClear);
+const chatHint = document.createElement("div"); chatHint.style.fontSize="12px"; chatHint.style.color="#666";
+chatHint.textContent = "El chat actualiza automáticamente estos resultados.";
+
+chatWrapper.appendChild(chatList); chatWrapper.appendChild(chatBtns); chatWrapper.appendChild(chatHint);
+chatBlock.appendChild(chatWrapper);
+container.appendChild(chatBlock);
+
+chatHeader.addEventListener("click", (e)=>{
+  e.stopPropagation();
+  const expanded = chatHeader.classList.toggle("expanded");
+  chatWrapper.style.display = expanded ? "block" : "none";
+  chatArrow.innerHTML = expanded ? "&#9660;" : "&#9654;";
+});
+chatHeader.classList.add("expanded"); chatWrapper.style.display="block"; chatArrow.innerHTML="&#9660;";
+
+function renderChatPanel(){
+  chatList.innerHTML = "";
+  if ((chatFilter.names || []).length === 0){
+    const empty = document.createElement("div");
+    empty.style.color = "#888"; empty.textContent = "— sin datos del chat —";
+    chatList.appendChild(empty);
+  } else {
+    chatFilter.names.forEach(n=>{
+      const row = document.createElement("div");
+      row.textContent = "• " + String(n);
+      chatList.appendChild(row);
+    });
+  }
+}
+
+chatClear.addEventListener("click", ()=>{
+  // Solo limpiamos el filtro del chat; NO movemos el mapa
+  chatFilter.active = false;
+  chatFilter.placeIds = new Set();
+  chatFilter.names = [];
+  renderChatPanel();
+  applyFilters();
+});
+
+renderChatPanel();
 
   // FAVORITOS
   const favBlock = document.createElement("div"); favBlock.className="category-block";
@@ -1039,8 +1112,35 @@ withMap((map)=>{
     const ratingThreshold = ratingFilterOn ? parseFloat(ratingInput.value) : null;
     const reviewsThreshold = reviewsFilterOn ? parseFloat(reviewsInput.value) : null;
 
-    for(const marker of allMarkers){
-      let visible = markerMatchesCategoryFilters(marker);
+ for(const marker of allMarkers){
+  // 0) Filtro CHATBOT (prioritario)
+  let passesChat = true;
+  if (chatFilter.active){
+    passesChat = false;
+
+    // a) por place_id
+    if (marker._placeId && chatFilter.placeIds.size && chatFilter.placeIds.has(marker._placeId)){
+      passesChat = true;
+    }
+
+    // b) por nombre (fallback)
+    if (!passesChat && chatFilter.names.length){
+      const nm = (marker._rec?.name || "").toLowerCase();
+      for (const q of chatFilter.names){
+        if (nm.includes(String(q).toLowerCase())) { passesChat = true; break; }
+      }
+    }
+  }
+
+  if (!passesChat){
+    setMarkerVisible(marker, false);
+    continue;
+  }
+
+  // 1) Resto de filtros (categorías, horario, accesibilidad, etc.)
+  let visible = markerMatchesCategoryFilters(marker);
+
+
 
       if (visible && timeFilterOn){
         let sched = scheduleCache.get(marker._recId);
@@ -1137,6 +1237,47 @@ withMap((map)=>{
       { enableHighAccuracy: true, maximumAge: 30000, timeout: 5000 }
     );
   }
+  
+  
+  // === Mensajes desde el chat ===
+// Espera: { type:"SCT_APPLY_CHAT_FILTER", place_ids: string[], names: string[] }
+window.addEventListener("message", (ev)=>{
+  const data = ev?.data || {};
+  if (data.type === "SCT_APPLY_CHAT_FILTER"){
+    const ids = Array.isArray(data.place_ids) ? data.place_ids : [];
+    const names = Array.isArray(data.names) ? data.names : [];
+
+    chatFilter.placeIds = new Set(ids.filter(Boolean));
+    chatFilter.names = names.filter(Boolean);
+    chatFilter.active = (chatFilter.placeIds.size > 0) || (chatFilter.names.length > 0);
+
+    // Actualizar panel
+    renderChatPanel();
+
+    // Aplicar inmediatamente el filtro
+    applyFilters();
+
+    // Centrar vista a los puntos recibidos (si existen en el mapa)
+    const targets = [];
+    for (const mk of allMarkers){
+      if (chatFilter.placeIds.has(mk._placeId)) targets.push(mk.getLatLng());
+    }
+    // Fallback: intenta por nombre si no hay targets por ID
+    if (!targets.length && chatFilter.names.length) {
+            for (const mk of allMarkers) {
+                    const nm = (mk._rec?.name || "").toLowerCase();
+                    if (chatFilter.names.some(q => nm.includes(String(q).toLowerCase()))) {
+                            targets.push(mk.getLatLng());
+                            }
+                    }
+            }
+    if (targets.length){
+      const b = L.latLngBounds(targets);
+      try { map.fitBounds(b, { padding:[50,50] }); } catch {}
+    }
+  }
+});
+
 });
 </script>
 """

@@ -159,13 +159,21 @@
   </button>
 
   <!-- 3) Chat en iframe -->
-  <iframe id="sct-frame" src="{{ url_for('widget') }}" title="Smart City Tour" loading="lazy"></iframe>
+<iframe
+  id="sct-frame"
+  src="{{ url_for('widget') }}"
+  title="Smart City Tour"
+  loading="lazy"
+  allow="geolocation"
+></iframe>
 
   <!-- 4) JS del launcher -->
   <script>
     const btn = document.getElementById('sct-launcher');
     const frame = document.getElementById('sct-frame');
     let open = false;
+
+    const mapa = document.getElementById('mapa');
 
     const bubbleSVG = `
       <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true">
@@ -195,6 +203,53 @@
       btn.classList.add('rebote');
       btn.addEventListener('animationend', () => btn.classList.remove('rebote'), { once:true });
     });
+
+
+  window.addEventListener("message", async (ev) => {
+    const data = ev.data || {};
+    if (data.type === "SCT_SHOW_ON_MAP") {
+      try {
+        // 1) Minimizamos el chat si está abierto
+        if (open) toggleChat();
+
+        // 2) Buscamos place_ids + names de esa conversación (preferimos contexto por conversación)
+        let place_ids = [], names = [];
+        if (data.conversation_id) {
+          try {
+            const r1 = await fetch(`/api/conversation_place_ids/${encodeURIComponent(data.conversation_id)}`);
+            if (r1.ok) {
+              const j1 = await r1.json();
+              place_ids = Array.isArray(j1.place_ids) ? j1.place_ids : [];
+              names     = Array.isArray(j1.names)     ? j1.names     : [];
+            }
+          } catch {}
+        }
+
+        // 3) Si por lo que sea no vinieron, cogemos selección "viva"
+        if (!place_ids.length) {
+          try {
+            const r2 = await fetch(`/api/current_place_ids`);
+            if (r2.ok) {
+              const j2 = await r2.json();
+              place_ids = Array.isArray(j2.place_ids) ? j2.place_ids : [];
+               names     = Array.isArray(j2.names)     ? j2.names     : [];
+            }
+          } catch {}
+        }
+
+        // 4) Pasamos al mapa para que muestre el bloque "Chatbot"
+        mapa?.contentWindow?.postMessage({
+          type: "SCT_APPLY_CHAT_FILTER",
+          place_ids,
+          names
+        }, "*");
+      } catch (e) {
+        console.warn("SCT_SHOW_ON_MAP error:", e);
+      }
+    }
+  });
+
+
   </script>
 
   <footer class="sct-footer" role="contentinfo" aria-label="Marca">
